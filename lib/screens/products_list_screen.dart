@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../theme.dart';
 import '../widgets/cart_button.dart';
+import 'product_detail_screen.dart';
 
 class ProductsListScreen extends StatefulWidget {
   final int? categoryId;
@@ -26,18 +27,19 @@ class ProductsListScreen extends StatefulWidget {
 class _ProductsListScreenState extends State<ProductsListScreen> {
   bool _isLoadingSubcategories = true;
   bool _isLoadingBrands = true;
-  
+  bool _isLoadingProducts = true;
+
   List<dynamic> _subcategories = [];
   List<dynamic> _brands = [];
-  
+  List<dynamic> _allProducts = [];
+
   int? _selectedSubcategoryId;
   int? _selectedBrandId;
   List<Map<String, dynamic>> _cartItems = [];
 
-  // Aligned with the database IDs of Category, Subcategory, and Brand APIs
-  final List<Map<String, dynamic>> _allProducts = [
+  // Default fallback mock list
+  final List<Map<String, dynamic>> _fallbackProducts = [
     // --- Electronics (Category ID: 1) ---
-    // Mobile (Subcategory ID: 1)
     {
       "id": 101,
       "name": "Apple iPhone 15 Pro",
@@ -58,7 +60,6 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
       "subcategory_id": 1,
       "brand_id": 1 // Samsung
     },
-    // Laptop (Subcategory ID: 2)
     {
       "id": 103,
       "name": "Dell XPS 15 Laptop",
@@ -79,7 +80,6 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
       "subcategory_id": 2,
       "brand_id": 2 // Apple
     },
-    // Tablet (Subcategory ID: 3)
     {
       "id": 105,
       "name": "Apple iPad Air M2",
@@ -100,7 +100,6 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
       "subcategory_id": 3,
       "brand_id": 1 // Samsung
     },
-    // Smart Watch (Subcategory ID: 4)
     {
       "id": 107,
       "name": "Apple Watch Ultra 2",
@@ -123,7 +122,6 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
     },
 
     // --- Fashion (Category ID: 2) ---
-    // Accessories (Subcategory ID: 8)
     {
       "id": 201,
       "name": "Apple FineWoven MagSafe Wallet",
@@ -146,7 +144,6 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
     },
 
     // --- Home & Kitchen (Category ID: 3) ---
-    // Kitchen Appliances (Subcategory ID: 12)
     {
       "id": 301,
       "name": "LG NeoChef Convection Microwave",
@@ -169,7 +166,6 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
     },
 
     // --- Beauty & Personal Care (Category ID: 4) ---
-    // Fragrances (Subcategory ID: 16)
     {
       "id": 401,
       "name": "Apple Signature Brand Parfum",
@@ -182,7 +178,6 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
     },
 
     // --- Sports & Fitness (Category ID: 5) ---
-    // Gym Equipment (Subcategory ID: 17)
     {
       "id": 501,
       "name": "Sony Active Gym Headband",
@@ -202,6 +197,7 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
     _selectedBrandId = widget.initialBrandId;
     _loadSubcategories();
     _loadBrands();
+    _loadProducts();
     _loadCart();
   }
 
@@ -276,6 +272,57 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
     }
   }
 
+  Future<void> _loadProducts() async {
+    try {
+      final response = await ApiService.fetchActiveProducts();
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> body = json.decode(response.body);
+        final List<dynamic> allProds = body['data'] ?? [];
+        if (allProds.isNotEmpty) {
+          setState(() {
+            _allProducts = allProds.map((p) {
+              final double pPrice = double.tryParse(p['product_discount_price']?.toString() ?? '') ??
+                  double.tryParse(p['product_price']?.toString() ?? '') ??
+                  0.0;
+              return {
+                "id": p['id'],
+                "name": p['product_name'] ?? 'Product',
+                "price": pPrice,
+                "desc": p['product_short_description'] ?? '',
+                "image": p['categories_name'] ?? '',
+                "category_id": p['product_category_id'],
+                "subcategory_id": p['product_sub_category_id'],
+                "brand_id": p['product_brand_id'],
+                "product_vendor_id": p['product_vendor_id'],
+                // Retain source payload maps for details router
+                "images": p['images'],
+                "product_name": p['product_name'],
+                "vendor_name": p['vendor_name'],
+                "categories_name": p['categories_name'],
+                "categories_subs_name": p['categories_subs_name'],
+                "brands_name": p['brands_name'],
+                "product_short_description": p['product_short_description'],
+                "product_long_description": p['product_long_description'],
+                "product_price": p['product_price'],
+                "product_discount_price": p['product_discount_price'],
+                "product_status": p['product_status'],
+              };
+            }).toList();
+            _isLoadingProducts = false;
+          });
+          return;
+        }
+      }
+      throw Exception();
+    } catch (e) {
+      debugPrint("Failed to fetch backend products, loading fallbacks: $e");
+      setState(() {
+        _allProducts = List.from(_fallbackProducts);
+        _isLoadingProducts = false;
+      });
+    }
+  }
+
   Future<void> _loadCart() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -301,32 +348,55 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
     }
   }
 
-  void _addToCart(Map<String, dynamic> product) {
-    setState(() {
-      final existingIndex = _cartItems.indexWhere((item) => item['id'] == product['id']);
-      if (existingIndex != -1) {
-        _cartItems[existingIndex]['quantity'] = (_cartItems[existingIndex]['quantity'] ?? 1) + 1;
-      } else {
-        _cartItems.add({
-          "id": product['id'],
-          "name": product['name'],
-          "price": product['price'],
-          "desc": product['desc'],
-          "image": product['image'],
-          "quantity": 1,
-        });
+  Future<void> _addToCart(Map<String, dynamic> product) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? cartStr = prefs.getString('cart_data');
+      List<Map<String, dynamic>> currentCart = [];
+      if (cartStr != null && cartStr.isNotEmpty) {
+        final List<dynamic> parsed = json.decode(cartStr);
+        currentCart = parsed.map((item) => Map<String, dynamic>.from(item)).toList();
       }
-    });
-    _saveCart();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text("${product['name']} added to cart!"),
-        duration: const Duration(seconds: 1),
-        backgroundColor: AppColors.primary,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
+
+      String? productImg;
+      if (product['images'] != null && product['images'] is List && (product['images'] as List).isNotEmpty) {
+        productImg = product['images'][0]['product_images']?.toString();
+      }
+
+      setState(() {
+        final existingIndex = currentCart.indexWhere((item) => item['id'] == product['id']);
+        if (existingIndex != -1) {
+          currentCart[existingIndex]['quantity'] = (currentCart[existingIndex]['quantity'] ?? 1) + 1;
+        } else {
+          currentCart.add({
+            "id": product['id'],
+            "name": product['name'],
+            "price": product['price'],
+            "desc": product['desc'],
+            "image": product['image'],
+            "quantity": 1,
+            "product_vendor_id": product['product_vendor_id'],
+            "product_image": productImg,
+          });
+        }
+        _cartItems = currentCart;
+      });
+
+      await prefs.setString('cart_data', json.encode(currentCart));
+      CartManager.updateCartCount();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("${product['name']} added to cart!"),
+          duration: const Duration(seconds: 1),
+          backgroundColor: AppColors.primary,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    } catch (e) {
+      debugPrint("Error adding to cart: $e");
+    }
   }
 
   IconData _getCategoryIcon(String name) {
@@ -373,7 +443,7 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
     final theme = Theme.of(context);
 
     // Apply Filter Logic dynamically
-    final List<Map<String, dynamic>> filtered = _allProducts.where((p) {
+    final List<dynamic> filtered = _allProducts.where((p) {
       if (widget.categoryId != null && p['category_id'] != widget.categoryId) {
         return false;
       }
@@ -401,172 +471,174 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
           SizedBox(width: 12),
         ],
       ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 1. Subcategories Filter Bar (Dual header)
-          if (!_isLoadingSubcategories && _subcategories.isNotEmpty) ...[
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              child: Text(
-                'Subcategories',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-              ),
-            ),
-            Container(
-              height: 52,
-              margin: const EdgeInsets.only(bottom: 6),
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: _subcategories.length,
-                itemBuilder: (context, index) {
-                  final sub = _subcategories[index];
-                  final bool isSelected = _selectedSubcategoryId == sub['id'];
-                  final String imageUrl = _getSubcategoryImage(sub['categories_subs_image']);
-                  
-                  return GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        if (isSelected) {
-                          _selectedSubcategoryId = null;
-                        } else {
-                          _selectedSubcategoryId = sub['id'];
-                        }
-                      });
-                    },
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      decoration: BoxDecoration(
-                        color: isSelected ? Colors.white : Colors.white70,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isSelected ? theme.colorScheme.secondary : AppColors.border,
-                          width: isSelected ? 2.0 : 1.0,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(6),
-                            child: Image.network(
-                              imageUrl,
-                              width: 22,
-                              height: 22,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) => Container(
-                                width: 22,
-                                height: 22,
-                                color: theme.colorScheme.secondary.withOpacity(0.1),
-                                child: const Icon(Icons.category, size: 10),
+      body: _isLoadingProducts
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 1. Subcategories Filter Bar (Dual header)
+                if (!_isLoadingSubcategories && _subcategories.isNotEmpty) ...[
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    child: Text(
+                      'Subcategories',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                    ),
+                  ),
+                  Container(
+                    height: 52,
+                    margin: const EdgeInsets.only(bottom: 6),
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: _subcategories.length,
+                      itemBuilder: (context, index) {
+                        final sub = _subcategories[index];
+                        final bool isSelected = _selectedSubcategoryId == sub['id'];
+                        final String imageUrl = _getSubcategoryImage(sub['categories_subs_image']);
+                        
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              if (isSelected) {
+                                _selectedSubcategoryId = null;
+                              } else {
+                                _selectedSubcategoryId = sub['id'];
+                              }
+                            });
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            decoration: BoxDecoration(
+                              color: isSelected ? Colors.white : Colors.white70,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isSelected ? theme.colorScheme.secondary : AppColors.border,
+                                width: isSelected ? 2.0 : 1.0,
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            sub['categories_subs_name'] ?? 'Subcategory',
-                            style: TextStyle(
-                              color: isSelected ? theme.colorScheme.secondary : AppColors.textSecondary,
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                              fontSize: 12,
+                            child: Row(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: Image.network(
+                                    imageUrl,
+                                    width: 22,
+                                    height: 22,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) => Container(
+                                      width: 22,
+                                      height: 22,
+                                      color: theme.colorScheme.secondary.withOpacity(0.1),
+                                      child: const Icon(Icons.category, size: 10),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  sub['categories_subs_name'] ?? 'Subcategory',
+                                  style: TextStyle(
+                                    color: isSelected ? theme.colorScheme.secondary : AppColors.textSecondary,
+                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
-            ),
-          ],
-
-          // 2. Brand Filter Row (Dual header)
-          if (!_isLoadingBrands && _brands.isNotEmpty) ...[
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              child: Text(
-                'Brands',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-              ),
-            ),
-            Container(
-              height: 52,
-              margin: const EdgeInsets.only(bottom: 12),
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: _brands.length,
-                itemBuilder: (context, index) {
-                  final brand = _brands[index];
-                  final bool isSelected = _selectedBrandId == brand['id'];
-                  return GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        if (isSelected) {
-                          _selectedBrandId = null;
-                        } else {
-                          _selectedBrandId = brand['id'];
-                        }
-                      });
-                    },
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      decoration: BoxDecoration(
-                        color: isSelected ? Colors.white : Colors.white70,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isSelected ? theme.colorScheme.primary : AppColors.border,
-                          width: isSelected ? 2.0 : 1.0,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            _getBrandIcon(brand['brands_name'] ?? ''),
-                            color: isSelected ? theme.colorScheme.primary : AppColors.textLight,
-                            size: 16,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            brand['brands_name'] ?? 'Brand',
-                            style: TextStyle(
-                              color: isSelected ? theme.colorScheme.primary : AppColors.textSecondary,
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-
-          // Grid list
-          Expanded(
-            child: filtered.isEmpty
-                ? _buildEmptyState()
-                : GridView.builder(
-                    padding: const EdgeInsets.all(16),
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: MediaQuery.of(context).size.width > 800 ? 4 : 2,
-                      crossAxisSpacing: 16,
-                      mainAxisSpacing: 16,
-                      childAspectRatio: 0.72,
-                    ),
-                    itemCount: filtered.length,
-                    itemBuilder: (context, index) {
-                      final prod = filtered[index];
-                      return _buildProductCard(prod, theme);
-                    },
                   ),
-          ),
-        ],
-      ),
+                ],
+
+                // 2. Brand Filter Row (Dual header)
+                if (!_isLoadingBrands && _brands.isNotEmpty) ...[
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    child: Text(
+                      'Brands',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                    ),
+                  ),
+                  Container(
+                    height: 52,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: _brands.length,
+                      itemBuilder: (context, index) {
+                        final brand = _brands[index];
+                        final bool isSelected = _selectedBrandId == brand['id'];
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              if (isSelected) {
+                                _selectedBrandId = null;
+                              } else {
+                                _selectedBrandId = brand['id'];
+                              }
+                            });
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            decoration: BoxDecoration(
+                              color: isSelected ? Colors.white : Colors.white70,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isSelected ? theme.colorScheme.primary : AppColors.border,
+                                width: isSelected ? 2.0 : 1.0,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  _getBrandIcon(brand['brands_name'] ?? ''),
+                                  color: isSelected ? theme.colorScheme.primary : AppColors.textLight,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  brand['brands_name'] ?? 'Brand',
+                                  style: TextStyle(
+                                    color: isSelected ? theme.colorScheme.primary : AppColors.textSecondary,
+                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+
+                // Grid list
+                Expanded(
+                  child: filtered.isEmpty
+                      ? _buildEmptyState()
+                      : GridView.builder(
+                          padding: const EdgeInsets.all(16),
+                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: MediaQuery.of(context).size.width > 800 ? 4 : 2,
+                            crossAxisSpacing: 16,
+                            mainAxisSpacing: 16,
+                            childAspectRatio: 0.72,
+                          ),
+                          itemCount: filtered.length,
+                          itemBuilder: (context, index) {
+                            final prod = filtered[index];
+                            return _buildProductCard(prod, theme);
+                          },
+                        ),
+                ),
+              ],
+            ),
     );
   }
 
@@ -596,88 +668,121 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
   }
 
   Widget _buildProductCard(Map<String, dynamic> product, ThemeData theme) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.border, width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.01),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+    // Construct real product network image path
+    final images = product['images'];
+    String imageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/no_image.jpg';
+    if (images != null && images is List && images.isNotEmpty) {
+      final String? filename = images[0]['product_images'];
+      if (filename != null && filename.isNotEmpty) {
+        imageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/product_images/$filename';
+      }
+    }
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ProductDetailScreen(product: product),
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withOpacity(0.05),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-              ),
-              child: Center(
-                child: Icon(
-                  _getCategoryIcon(product['image'] ?? ''),
-                  size: 40,
-                  color: theme.colorScheme.primary,
-                ),
-              ),
+        ).then((_) {
+          CartManager.updateCartCount();
+          _loadCart();
+        });
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppColors.border, width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.01),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  product['name'] ?? 'Product Name',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    color: AppColors.textPrimary,
-                  ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withOpacity(0.05),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  product['desc'] ?? '',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11, color: AppColors.textLight, height: 1.3),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      "\$${product['price']?.toStringAsFixed(2)}",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+                  child: Image.network(
+                    imageUrl,
+                    width: double.infinity,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      color: theme.colorScheme.primary.withOpacity(0.05),
+                      child: Icon(
+                        _getCategoryIcon(product['image'] ?? ''),
+                        size: 40,
                         color: theme.colorScheme.primary,
                       ),
                     ),
-                    GestureDetector(
-                      onTap: () => _addToCart(product),
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primary,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.add_shopping_cart, color: Colors.white, size: 16),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ],
+              ),
             ),
-          ),
-        ],
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    product['name'] ?? 'Product Name',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    product['desc'] ?? '',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11, color: AppColors.textLight, height: 1.3),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        "₹${product['price']?.toStringAsFixed(2)}",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () => _addToCart(product),
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.add_shopping_cart, color: Colors.white, size: 16),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
