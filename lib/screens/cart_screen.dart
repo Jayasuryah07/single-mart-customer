@@ -5,6 +5,7 @@ import '../services/api_service.dart';
 import '../theme.dart';
 import '../widgets/cart_button.dart';
 import 'login_screen.dart';
+import 'checkout_screen.dart';
 
 class CartScreen extends StatefulWidget {
   const CartScreen({super.key});
@@ -32,6 +33,37 @@ class _CartScreenState extends State<CartScreen> {
         setState(() {
           _cartItems = parsed.map((item) => Map<String, dynamic>.from(item)).toList();
         });
+
+        // Safeguard: resolve missing product images by fetching active products catalog!
+        bool missingProductImg = false;
+        for (var item in _cartItems) {
+          if (item['product_image'] == null) {
+            missingProductImg = true;
+            break;
+          }
+        }
+
+        if (missingProductImg) {
+          final productsResponse = await ApiService.fetchActiveProducts();
+          if (productsResponse.statusCode == 200) {
+            final body = json.decode(productsResponse.body);
+            final List<dynamic> allProds = body['data'] ?? [];
+            setState(() {
+              for (var item in _cartItems) {
+                if (item['product_image'] == null) {
+                  final matched = allProds.firstWhere(
+                    (p) => p['id']?.toString() == item['id']?.toString(),
+                    orElse: () => null,
+                  );
+                  if (matched != null && matched['images'] != null && matched['images'] is List && (matched['images'] as List).isNotEmpty) {
+                    item['product_image'] = matched['images'][0]['product_images']?.toString();
+                  }
+                }
+              }
+            });
+            _saveCart();
+          }
+        }
       }
     } catch (e) {
       debugPrint("Error loading cart: $e");
@@ -44,7 +76,6 @@ class _CartScreenState extends State<CartScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('cart_data', json.encode(_cartItems));
-      // Notify globally that cart count changed
       CartManager.updateCartCount();
     } catch (e) {
       debugPrint("Error saving cart: $e");
@@ -86,7 +117,24 @@ class _CartScreenState extends State<CartScreen> {
     final String? token = prefs.getString('auth_token');
 
     if (token != null && token.isNotEmpty) {
-      _showCheckoutSuccessDialog();
+      final bool? orderPlaced = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => CheckoutScreen(
+            cartItems: _cartItems,
+            token: token,
+          ),
+        ),
+      );
+      if (orderPlaced == true) {
+        setState(() {
+          _cartItems.clear();
+        });
+        await _saveCart();
+        if (mounted) {
+          Navigator.pop(context);
+        }
+      }
     } else {
       _showAuthRequiredDialog();
     }
@@ -140,8 +188,8 @@ class _CartScreenState extends State<CartScreen> {
                       _cartItems.clear();
                     });
                     _saveCart();
-                    Navigator.pop(ctx); // Close dialog
-                    Navigator.pop(context); // Close Cart Screen
+                    Navigator.pop(ctx);
+                    Navigator.pop(context);
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
@@ -298,31 +346,71 @@ class _CartScreenState extends State<CartScreen> {
                 ),
                 child: Row(
                   children: [
-                    Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withOpacity(0.05),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Center(
-                        child: Icon(Icons.shopping_bag_outlined, color: theme.colorScheme.primary, size: 28),
-                      ),
-                    ),
+                    item['product_image'] != null && item['product_image'].toString().isNotEmpty
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.network(
+                              "https://agsdemo.in/singlemartapi/public/assets/images/product_images/${item['product_image']}",
+                              width: 64,
+                              height: 64,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  width: 64,
+                                  height: 64,
+                                  decoration: BoxDecoration(
+                                    color: theme.colorScheme.primary.withOpacity(0.05),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Center(
+                                    child: Icon(Icons.shopping_bag_outlined, color: theme.colorScheme.primary, size: 28),
+                                  ),
+                                );
+                              },
+                            ),
+                          )
+                        : Container(
+                            width: 64,
+                            height: 64,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary.withOpacity(0.05),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Center(
+                              child: Icon(Icons.shopping_bag_outlined, color: theme.colorScheme.primary, size: 28),
+                            ),
+                          ),
                     const SizedBox(width: 16),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            item['name'],
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  item['name'],
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
+                                ),
+                              ),
+                              // Delete Button
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline_rounded, color: AppColors.error, size: 20),
+                                onPressed: () {
+                                  setState(() {
+                                    _cartItems.removeAt(index);
+                                  });
+                                  _saveCart();
+                                },
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '\$${item['price']}',
+                            '₹${item['price']}',
                             style: TextStyle(fontSize: 13, color: theme.colorScheme.primary, fontWeight: FontWeight.bold),
                           ),
                         ],
@@ -365,7 +453,7 @@ class _CartScreenState extends State<CartScreen> {
                 children: [
                   const Text('Total Amount', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textLight)),
                   Text(
-                    '\$${_getCartTotal().toStringAsFixed(2)}',
+                    '₹${_getCartTotal().toStringAsFixed(2)}',
                     style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: theme.colorScheme.primary),
                   ),
                 ],

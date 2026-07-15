@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/api_service.dart';
 import '../theme.dart';
 import '../widgets/cart_button.dart';
@@ -8,6 +10,11 @@ import 'categories_list_screen.dart';
 import 'subcategories_list_screen.dart';
 import 'products_list_screen.dart';
 import 'login_screen.dart';
+import 'product_detail_screen.dart';
+import 'filter_screen.dart';
+import 'update_profile_screen.dart';
+import 'manage_address_screen.dart';
+import 'order_history_screen.dart';
 
 class ECommerceHomeScreen extends StatefulWidget {
   const ECommerceHomeScreen({super.key});
@@ -22,12 +29,19 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
   List<dynamic> _categories = [];
   List<dynamic> _subcategories = [];
   List<dynamic> _brands = [];
+  List<dynamic> _allProducts = [];
+  List<dynamic> _banners = [];
+
+  // Page tracking for banner carousel indicator and automatic timer
+  int _currentBannerIndex = 0;
+  final PageController _bannerPageController = PageController();
+  Timer? _bannerTimer;
 
   // Search States
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
-  // Multi-Select Filter Selections
+  // Filter Selections (Maintained as Sets to support multi-select returning from FilterScreen)
   Set<int> _selectedCategoryIds = {};
   Set<int> _selectedSubcategoryIds = {};
   Set<int> _selectedBrandIds = {};
@@ -39,10 +53,9 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
   // Local Cart State
   List<Map<String, dynamic>> _cartItems = [];
 
-  // Mock Products database
-  final List<Map<String, dynamic>> _allProducts = [
+  // Fallback products mock database
+  final List<Map<String, dynamic>> _fallbackProducts = [
     // --- Electronics (Category ID: 1) ---
-    // Mobile (Subcategory ID: 1)
     {
       "id": 101,
       "name": "Apple iPhone 15 Pro",
@@ -63,7 +76,6 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
       "subcategory_id": 1,
       "brand_id": 1 // Samsung
     },
-    // Laptop (Subcategory ID: 2)
     {
       "id": 103,
       "name": "Dell XPS 15 Laptop",
@@ -84,7 +96,6 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
       "subcategory_id": 2,
       "brand_id": 2 // Apple
     },
-    // Tablet (Subcategory ID: 3)
     {
       "id": 105,
       "name": "Apple iPad Air M2",
@@ -105,7 +116,6 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
       "subcategory_id": 3,
       "brand_id": 1 // Samsung
     },
-    // Smart Watch (Subcategory ID: 4)
     {
       "id": 107,
       "name": "Apple Watch Ultra 2",
@@ -128,7 +138,6 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
     },
 
     // --- Fashion (Category ID: 2) ---
-    // Accessories (Subcategory ID: 8)
     {
       "id": 201,
       "name": "Apple FineWoven MagSafe Wallet",
@@ -151,7 +160,6 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
     },
 
     // --- Home & Kitchen (Category ID: 3) ---
-    // Kitchen Appliances (Subcategory ID: 12)
     {
       "id": 301,
       "name": "LG NeoChef Convection Microwave",
@@ -174,7 +182,6 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
     },
 
     // --- Beauty & Personal Care (Category ID: 4) ---
-    // Fragrances (Subcategory ID: 16)
     {
       "id": 401,
       "name": "Apple Signature Brand Parfum",
@@ -187,7 +194,6 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
     },
 
     // --- Sports & Fitness (Category ID: 5) ---
-    // Gym Equipment (Subcategory ID: 17)
     {
       "id": 501,
       "name": "Sony Active Gym Headband",
@@ -203,6 +209,7 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
   @override
   void initState() {
     super.initState();
+    _allProducts = List.from(_fallbackProducts);
     _loadSession();
     _loadCatalog();
     _loadCart();
@@ -211,6 +218,8 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _bannerPageController.dispose();
+    _bannerTimer?.cancel();
     super.dispose();
   }
 
@@ -223,6 +232,7 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
         _isLoggedIn = true;
         _userData = json.decode(userDataStr);
       });
+      _refreshProfileFromServerSilent();
     } else {
       setState(() {
         _isLoggedIn = false;
@@ -231,22 +241,135 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
     }
   }
 
+  Future<void> _refreshProfileFromServerSilent() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? token = prefs.getString('auth_token');
+    if (token == null || token.isEmpty || _userData == null) return;
+
+    try {
+      final int vendorId = _userData!['id'] is int 
+          ? _userData!['id'] 
+          : int.tryParse(_userData!['id']?.toString() ?? '0') ?? 0;
+
+      final response = await ApiService.fetchVendor(vendorId, token);
+      if (response.statusCode == 200) {
+        final resData = json.decode(response.body);
+        final dynamic profileData = resData['data'];
+        if (profileData != null) {
+          final Map<String, dynamic> parsedProfile = Map<String, dynamic>.from(profileData);
+          
+          final addressList = parsedProfile['addresses'] ?? parsedProfile['address'];
+          if (addressList != null) {
+            parsedProfile['addresses'] = addressList;
+            parsedProfile['address'] = addressList;
+          }
+
+          await prefs.setString('user_data', json.encode(parsedProfile));
+          if (mounted) {
+            setState(() {
+              _userData = parsedProfile;
+            });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("Silent refresh profile error: $e");
+    }
+  }
+
+  Future<void> _refreshProfileFromServer() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? token = prefs.getString('auth_token');
+    if (token == null || token.isEmpty || _userData == null) return;
+
+    try {
+      final int vendorId = _userData!['id'] is int 
+          ? _userData!['id'] 
+          : int.tryParse(_userData!['id']?.toString() ?? '0') ?? 0;
+
+      final response = await ApiService.fetchVendor(vendorId, token);
+      if (response.statusCode == 200) {
+        final resData = json.decode(response.body);
+        final dynamic profileData = resData['data'];
+        if (profileData != null) {
+          final Map<String, dynamic> parsedProfile = Map<String, dynamic>.from(profileData);
+          
+          final addressList = parsedProfile['addresses'] ?? parsedProfile['address'];
+          if (addressList != null) {
+            parsedProfile['addresses'] = addressList;
+            parsedProfile['address'] = addressList;
+          }
+
+          await prefs.setString('user_data', json.encode(parsedProfile));
+          if (mounted) {
+            setState(() {
+              _userData = parsedProfile;
+            });
+          }
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle_rounded, color: Colors.white, size: 24),
+                  SizedBox(width: 12),
+                  Text('Profile synced successfully!', style: TextStyle(fontSize: 14)),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+              duration: Duration(seconds: 1),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint("Manual refresh profile error: $e");
+    }
+  }
+
+  void _startBannerAutoScroll() {
+    _bannerTimer?.cancel();
+    _bannerTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
+      if (_banners.length > 1 && _bannerPageController.hasClients) {
+        int nextPage = _bannerPageController.page!.toInt() + 1;
+        if (nextPage >= _banners.length) {
+          nextPage = 0;
+        }
+        _bannerPageController.animateToPage(
+          nextPage,
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.easeInOutCubic,
+        );
+      }
+    });
+  }
+
   Future<void> _loadCatalog() async {
     setState(() => _isLoading = true);
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? token = prefs.getString('auth_token');
+
       final responses = await Future.wait([
         ApiService.fetchActiveCategories(),
         ApiService.fetchActiveSubCategories(),
         ApiService.fetchActiveBrands(),
+        ApiService.fetchActiveProducts(),
+        ApiService.fetchActiveBanners(token),
       ]);
 
       final catRes = responses[0];
       final subRes = responses[1];
       final brandRes = responses[2];
+      final prodRes = responses[3];
+      final bannerRes = responses[4];
 
       List<dynamic> loadedCats = [];
       List<dynamic> loadedSubs = [];
       List<dynamic> loadedBrands = [];
+      List<dynamic> loadedProds = [];
+      List<dynamic> loadedBanners = [];
 
       if (catRes.statusCode == 200) {
         loadedCats = json.decode(catRes.body)['data'] ?? [];
@@ -257,15 +380,62 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
       if (brandRes.statusCode == 200) {
         loadedBrands = json.decode(brandRes.body)['data'] ?? [];
       }
+      if (prodRes.statusCode == 200) {
+        loadedProds = json.decode(prodRes.body)['data'] ?? [];
+      }
+      if (bannerRes.statusCode == 200) {
+        loadedBanners = json.decode(bannerRes.body)['data'] ?? [];
+      }
 
       setState(() {
         _categories = loadedCats;
         _subcategories = loadedSubs;
         _brands = loadedBrands;
+        _banners = loadedBanners;
+        _currentBannerIndex = 0;
+
+        if (loadedProds.isNotEmpty) {
+          _allProducts = loadedProds.map((p) {
+            final double pPrice = double.tryParse(p['product_discount_price']?.toString() ?? '') ??
+                double.tryParse(p['product_price']?.toString() ?? '') ??
+                0.0;
+            return {
+              "id": p['id'],
+              "name": p['product_name'] ?? 'Product',
+              "price": pPrice,
+              "desc": p['product_short_description'] ?? '',
+              "image": p['categories_name'] ?? '',
+              "category_id": p['product_category_id'],
+              "subcategory_id": p['product_sub_category_id'],
+              "brand_id": p['product_brand_id'],
+              "product_vendor_id": p['product_vendor_id'],
+              // Retain source payload maps for detail screen
+              "images": p['images'],
+              "product_name": p['product_name'],
+              "vendor_name": p['vendor_name'],
+              "categories_name": p['categories_name'],
+              "categories_subs_name": p['categories_subs_name'],
+              "brands_name": p['brands_name'],
+              "product_short_description": p['product_short_description'],
+              "product_long_description": p['product_long_description'],
+              "product_price": p['product_price'],
+              "product_discount_price": p['product_discount_price'],
+              "product_status": p['product_status'],
+            };
+          }).toList();
+        } else {
+          _allProducts = List.from(_fallbackProducts);
+        }
+
         _isLoading = false;
       });
+
+      // Start autoplay carousel slider if multiple banners are present
+      if (_banners.length > 1) {
+        _startBannerAutoScroll();
+      }
     } catch (e) {
-      debugPrint("Failed to load catalog from APIs: $e");
+      debugPrint("Failed to load catalog from APIs, fallbacks triggered: $e");
       setState(() {
         _categories = [
           {"id": 4, "categories_name": "Beauty & Personal Care"},
@@ -295,6 +465,8 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
           {"id": 1, "brands_name": "Samsung"},
           {"id": 3, "brands_name": "Sony"}
         ];
+        _allProducts = List.from(_fallbackProducts);
+        _banners = [];
         _isLoading = false;
       });
     }
@@ -315,67 +487,69 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
     }
   }
 
-  Future<void> _saveCart() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('cart_data', json.encode(_cartItems));
-      CartManager.updateCartCount();
-    } catch (e) {
-      debugPrint("Error saving cart: $e");
-    }
-  }
-
-  void _addToCart(Map<String, dynamic> product) {
-    setState(() {
-      final existingIndex = _cartItems.indexWhere((item) => item['id'] == product['id']);
-      if (existingIndex != -1) {
-        _cartItems[existingIndex]['quantity'] = (_cartItems[existingIndex]['quantity'] ?? 1) + 1;
-      } else {
-        _cartItems.add({
-          "id": product['id'],
-          "name": product['name'],
-          "price": product['price'],
-          "desc": product['desc'],
-          "image": product['image'],
-          "quantity": 1,
-        });
-      }
-    });
-    _saveCart();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text("${product['name']} added to cart!"),
-        duration: const Duration(seconds: 1),
-        backgroundColor: AppColors.primary,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
-  }
-
   Future<void> _logout() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      if (token.isNotEmpty) {
-        await ApiService.logout(token);
-      }
+      await prefs.remove('auth_token');
+      await prefs.remove('user_data');
+      setState(() {
+        _isLoggedIn = false;
+        _userData = null;
+      });
     } catch (e) {
-      debugPrint("Error invalidating session during logout: $e");
+      debugPrint("Error during logout: $e");
     }
+  }
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('auth_token');
-    await prefs.remove('user_data');
+  Future<void> _addToCart(Map<String, dynamic> product) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? cartStr = prefs.getString('cart_data');
+      List<Map<String, dynamic>> currentCart = [];
+      if (cartStr != null && cartStr.isNotEmpty) {
+        final List<dynamic> parsed = json.decode(cartStr);
+        currentCart = parsed.map((item) => Map<String, dynamic>.from(item)).toList();
+      }
 
-    setState(() {
-      _isLoggedIn = false;
-      _userData = null;
-    });
+      String? productImg;
+      if (product['images'] != null && product['images'] is List && (product['images'] as List).isNotEmpty) {
+        productImg = product['images'][0]['product_images']?.toString();
+      }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Logged out successfully.")),
-    );
+      setState(() {
+        final existingIndex = currentCart.indexWhere((item) => item['id'] == product['id']);
+        if (existingIndex != -1) {
+          currentCart[existingIndex]['quantity'] = (currentCart[existingIndex]['quantity'] ?? 1) + 1;
+        } else {
+          currentCart.add({
+            "id": product['id'],
+            "name": product['name'],
+            "price": product['price'],
+            "desc": product['desc'],
+            "image": product['image'],
+            "quantity": 1,
+            "product_vendor_id": product['product_vendor_id'],
+            "product_image": productImg,
+          });
+        }
+        _cartItems = currentCart;
+      });
+
+      await prefs.setString('cart_data', json.encode(currentCart));
+      CartManager.updateCartCount();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("${product['name']} added to cart!"),
+          duration: const Duration(seconds: 1),
+          backgroundColor: AppColors.primary,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    } catch (e) {
+      debugPrint("Error adding to cart: $e");
+    }
   }
 
   String _getCategoryImage(dynamic categoriesImage) {
@@ -389,6 +563,33 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
       }
     }
     return 'https://agsdemo.in/singlemartapi/public/assets/images/category_images/$pathStr';
+  }
+
+  String _getBannerImage(dynamic bannerImage) {
+    if (bannerImage == null || bannerImage.toString().isEmpty) {
+      return 'https://agsdemo.in/singlemartapi/public/assets/images/no_image.jpg';
+    }
+    return 'https://agsdemo.in/singlemartapi/public/assets/images/banner_images/${bannerImage.toString()}';
+  }
+
+  Future<void> _launchUrl(String urlString) async {
+    final Uri url = Uri.parse(urlString);
+    try {
+      // Launch directly via external application to bypass Android queries constraints
+      final bool launched = await launchUrl(url, mode: LaunchMode.externalApplication);
+      if (!launched) {
+        // Fallback to inAppBrowserView if external application launch fails
+        await launchUrl(url, mode: LaunchMode.inAppBrowserView);
+      }
+    } catch (e) {
+      debugPrint("Direct URL launch failed: $e");
+      try {
+        // Final platformDefault fallback
+        await launchUrl(url, mode: LaunchMode.platformDefault);
+      } catch (e2) {
+        debugPrint("Url launcher fallback failed: $e2");
+      }
+    }
   }
 
   IconData _getCategoryIcon(String categoryName) {
@@ -411,235 +612,29 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
     return Icons.category;
   }
 
-  // Custom filter sheets launcher with Back Button and Multi-Select tags
-  void _showFilterBottomSheet() {
-    final theme = Theme.of(context);
-    
-    // Copy main filter state into bottom sheet local variables to enable cancellation on Back
-    Set<int> localCategoryIds = Set.from(_selectedCategoryIds);
-    Set<int> localSubcategoryIds = Set.from(_selectedSubcategoryIds);
-    Set<int> localBrandIds = Set.from(_selectedBrandIds);
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+  // Redirect to full-screen FilterScreen and await selected parameters
+  Future<void> _navigateToFilterScreen() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => FilterScreen(
+          categories: _categories,
+          subcategories: _subcategories,
+          brands: _brands,
+          initialCategoryIds: _selectedCategoryIds,
+          initialSubcategoryIds: _selectedSubcategoryIds,
+          initialBrandIds: _selectedBrandIds,
+        ),
       ),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            // Filter active subcategories matching any selected categories (or show all if empty)
-            final sheetActiveSubs = localCategoryIds.isEmpty 
-                ? _subcategories 
-                : _subcategories.where((s) => localCategoryIds.contains(s['category_id'])).toList();
-
-            return Padding(
-              padding: EdgeInsets.only(
-                top: 12,
-                left: 20,
-                right: 20,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Handle Bar
-                    Center(
-                      child: Container(
-                        width: 44,
-                        height: 5,
-                        decoration: BoxDecoration(
-                          color: AppColors.border,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    
-                    // Header with Back Button
-                    Row(
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.arrow_back_rounded, color: AppColors.textPrimary),
-                          onPressed: () => Navigator.pop(context), // Back button dismisses changes
-                        ),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Filters',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                        ),
-                      ],
-                    ),
-                    const Divider(color: AppColors.border),
-                    const SizedBox(height: 12),
-
-                    // 1. Categories Wrap (Multi-select)
-                    const Text('Categories', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textSecondary)),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _categories.map((cat) {
-                        final int id = cat['id'];
-                        final bool isSelected = localCategoryIds.contains(id);
-                        return ChoiceChip(
-                          label: Text(cat['categories_name'] ?? ''),
-                          selected: isSelected,
-                          selectedColor: theme.colorScheme.primary.withOpacity(0.15),
-                          checkmarkColor: theme.colorScheme.primary,
-                          labelStyle: TextStyle(
-                            color: isSelected ? theme.colorScheme.primary : AppColors.textPrimary,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          ),
-                          backgroundColor: const Color(0xFFF1F5F9),
-                          side: BorderSide(color: isSelected ? theme.colorScheme.primary : Colors.transparent),
-                          onSelected: (val) {
-                            setSheetState(() {
-                              if (val) {
-                                localCategoryIds.add(id);
-                              } else {
-                                localCategoryIds.remove(id);
-                                // Clean up subcategories matching this category
-                                localSubcategoryIds.removeWhere((subId) {
-                                  final matchingSub = _subcategories.firstWhere(
-                                    (s) => s['id'] == subId,
-                                    orElse: () => null,
-                                  );
-                                  return matchingSub != null && matchingSub['category_id'] == id;
-                                });
-                              }
-                            });
-                          },
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // 2. Subcategories Wrap (Multi-select)
-                    if (sheetActiveSubs.isNotEmpty) ...[
-                      const Text('Subcategories', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textSecondary)),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: sheetActiveSubs.map((sub) {
-                          final int id = sub['id'];
-                          final bool isSelected = localSubcategoryIds.contains(id);
-                          return ChoiceChip(
-                            label: Text(sub['categories_subs_name'] ?? ''),
-                            selected: isSelected,
-                            selectedColor: theme.colorScheme.secondary.withOpacity(0.15),
-                            checkmarkColor: theme.colorScheme.secondary,
-                            labelStyle: TextStyle(
-                              color: isSelected ? theme.colorScheme.secondary : AppColors.textPrimary,
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                            ),
-                            backgroundColor: const Color(0xFFF1F5F9),
-                            side: BorderSide(color: isSelected ? theme.colorScheme.secondary : Colors.transparent),
-                            onSelected: (val) {
-                              setSheetState(() {
-                                if (val) {
-                                  localSubcategoryIds.add(id);
-                                } else {
-                                  localSubcategoryIds.remove(id);
-                                }
-                              });
-                            },
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 20),
-                    ],
-
-                    // 3. Brands Wrap (Multi-select)
-                    if (_brands.isNotEmpty) ...[
-                      const Text('Brands', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textSecondary)),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: _brands.map((brand) {
-                          final int id = brand['id'];
-                          final bool isSelected = localBrandIds.contains(id);
-                          return ChoiceChip(
-                            label: Text(brand['brands_name'] ?? ''),
-                            selected: isSelected,
-                            selectedColor: theme.colorScheme.primary.withOpacity(0.15),
-                            checkmarkColor: theme.colorScheme.primary,
-                            labelStyle: TextStyle(
-                              color: isSelected ? theme.colorScheme.primary : AppColors.textPrimary,
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                            ),
-                            backgroundColor: const Color(0xFFF1F5F9),
-                            side: BorderSide(color: isSelected ? theme.colorScheme.primary : Colors.transparent),
-                            onSelected: (val) {
-                              setSheetState(() {
-                                if (val) {
-                                  localBrandIds.add(id);
-                                } else {
-                                  localBrandIds.remove(id);
-                                }
-                              });
-                            },
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 28),
-                    ],
-
-                    // Control Buttons
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () {
-                              setSheetState(() {
-                                localCategoryIds.clear();
-                                localSubcategoryIds.clear();
-                                localBrandIds.clear();
-                              });
-                            },
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              side: const BorderSide(color: AppColors.border),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            child: const Text('Reset All', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.bold)),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: () {
-                              setState(() {
-                                _selectedCategoryIds = Set.from(localCategoryIds);
-                                _selectedSubcategoryIds = Set.from(localSubcategoryIds);
-                                _selectedBrandIds = Set.from(localBrandIds);
-                              });
-                              Navigator.pop(context);
-                            },
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              backgroundColor: theme.colorScheme.primary,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            child: const Text('Apply Filters', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
     );
+
+    if (result != null && result is Map<String, dynamic>) {
+      setState(() {
+        _selectedCategoryIds = Set<int>.from(result['categoryIds'] ?? {});
+        _selectedSubcategoryIds = Set<int>.from(result['subcategoryIds'] ?? {});
+        _selectedBrandIds = Set<int>.from(result['brandIds'] ?? {});
+      });
+    }
   }
 
   @override
@@ -676,13 +671,35 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
           ],
         ),
         actions: [
-          if (_isLoggedIn)
+          if (_isLoggedIn) ...[
+            IconButton(
+              icon: const Icon(Icons.sync_rounded, color: AppColors.primary),
+              tooltip: 'Sync profile details',
+              onPressed: _refreshProfileFromServer,
+            ),
             Builder(
-              builder: (ctx) => IconButton(
-                icon: const Icon(Icons.account_circle, color: AppColors.primary, size: 28),
-                onPressed: () => Scaffold.of(ctx).openEndDrawer(),
-              ),
-            )
+              builder: (ctx) {
+                final String? userImage = _userData?['user_image']?.toString();
+                final String imageUrl = (userImage != null && userImage.isNotEmpty)
+                    ? "https://agsdemo.in/singlemartapi/public/assets/images/user_images/$userImage"
+                    : "";
+
+                return GestureDetector(
+                  onTap: () => Scaffold.of(ctx).openEndDrawer(),
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 16.0),
+                    child: CircleAvatar(
+                      radius: 16,
+                      backgroundColor: AppColors.primary.withOpacity(0.08),
+                      backgroundImage: imageUrl.isNotEmpty ? NetworkImage(imageUrl) : null,
+                      child: imageUrl.isEmpty
+                          ? const Icon(Icons.person, size: 20, color: AppColors.primary)
+                          : null,
+                    ),
+                  ),
+                );
+              },
+            )]
           else
             TextButton.icon(
               onPressed: () {
@@ -770,9 +787,9 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _buildDashboardBody(theme, isDesktop),
       
-      // Floating Filter Action Button on the bottom-right corner
+      // Floating Filter Action Button redirects to full-screen FilterScreen
       floatingActionButton: FloatingActionButton(
-        onPressed: _showFilterBottomSheet,
+        onPressed: _navigateToFilterScreen,
         backgroundColor: theme.colorScheme.primary,
         child: const Icon(Icons.filter_list_rounded, color: Colors.white),
       ),
@@ -794,9 +811,14 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
                   colors: [AppColors.primary, AppColors.secondary],
                 ),
               ),
-              currentAccountPicture: const CircleAvatar(
+              currentAccountPicture: CircleAvatar(
                 backgroundColor: Colors.white,
-                child: Icon(Icons.person, size: 40, color: AppColors.primary),
+                backgroundImage: _userData?['user_image'] != null && _userData!['user_image'].toString().isNotEmpty
+                    ? NetworkImage("https://agsdemo.in/singlemartapi/public/assets/images/user_images/${_userData!['user_image']}")
+                    : null,
+                child: (_userData?['user_image'] == null || _userData!['user_image'].toString().isEmpty)
+                    ? const Icon(Icons.person, size: 40, color: AppColors.primary)
+                    : null,
               ),
               accountName: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
               accountEmail: Text(email),
@@ -806,6 +828,75 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
                 leading: const Icon(Icons.phone_iphone_rounded, color: AppColors.textLight),
                 title: Text('+91 $mobile', style: const TextStyle(fontWeight: FontWeight.w500)),
               ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.manage_accounts_rounded, color: AppColors.primary),
+              title: const Text('Update Profile', style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () async {
+                Navigator.pop(context);
+                final String? token = (await SharedPreferences.getInstance()).getString('auth_token');
+                if (token != null && _userData != null) {
+                  final updated = await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => UpdateProfileScreen(
+                        userData: _userData!,
+                        token: token,
+                      ),
+                    ),
+                  );
+                  if (updated == true) {
+                    _loadSession();
+                  }
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.location_on_rounded, color: AppColors.primary),
+              title: const Text('Manage Addresses', style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () async {
+                Navigator.pop(context);
+                final String? token = (await SharedPreferences.getInstance()).getString('auth_token');
+                if (token != null && _userData != null) {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ManageAddressScreen(
+                        userData: _userData!,
+                        token: token,
+                      ),
+                    ),
+                  );
+                  _loadSession();
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.receipt_long_rounded, color: AppColors.primary),
+              title: const Text('Order History', style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () async {
+                Navigator.pop(context);
+                final String? token = (await SharedPreferences.getInstance()).getString('auth_token');
+                if (token != null) {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => OrderHistoryScreen(
+                        token: token,
+                      ),
+                    ),
+                  );
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.sync_rounded, color: AppColors.primary),
+              title: const Text('Refresh Profile', style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () {
+                Navigator.pop(context);
+                _refreshProfileFromServer();
+              },
+            ),
             const Divider(),
             const Spacer(),
             Padding(
@@ -833,9 +924,120 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
     );
   }
 
+  Widget _buildBannerSlider(ThemeData theme) {
+    if (_banners.isEmpty) {
+      // Fallback default banner card
+      return Container(
+        width: double.infinity,
+        margin: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [theme.colorScheme.primary, theme.colorScheme.secondary],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _isLoggedIn ? 'Welcome, ${_userData?['name']}!' : 'Grand Local Deals!',
+              style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Direct neighborhood shopping with instant delivery and zero fees.',
+              style: TextStyle(color: Colors.white, fontSize: 13, height: 1.4),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      height: 180,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.015),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: Stack(
+          children: [
+            PageView.builder(
+              controller: _bannerPageController,
+              itemCount: _banners.length,
+              onPageChanged: (index) {
+                setState(() {
+                  _currentBannerIndex = index;
+                });
+              },
+              itemBuilder: (context, index) {
+                final banner = _banners[index];
+                final String imageUrl = _getBannerImage(banner['banner_image']);
+                final String? link = banner['banner_link'];
+
+                return GestureDetector(
+                  onTap: () {
+                    if (link != null && link.isNotEmpty) {
+                      _launchUrl(link);
+                    }
+                  },
+                  child: Image.network(
+                    imageUrl,
+                    width: double.infinity,
+                    height: 180,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      color: theme.colorScheme.primary.withOpacity(0.05),
+                      child: Icon(Icons.broken_image, color: theme.colorScheme.primary, size: 48),
+                    ),
+                  ),
+                );
+              },
+            ),
+            if (_banners.length > 1)
+              Positioned(
+                bottom: 12,
+                left: 0,
+                right: 0,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(_banners.length, (index) {
+                    final bool isCurrent = index == _currentBannerIndex;
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      width: isCurrent ? 12 : 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: isCurrent ? theme.colorScheme.primary : theme.colorScheme.primary.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildDashboardBody(ThemeData theme, bool isDesktop) {
     // Dynamic local products filtering logic
-    final List<Map<String, dynamic>> filteredProducts = _allProducts.where((p) {
+    final List<dynamic> filteredProducts = _allProducts.where((p) {
       final bool matchesCategory = _selectedCategoryIds.isEmpty || _selectedCategoryIds.contains(p['category_id']);
       final bool matchesSubcategory = _selectedSubcategoryIds.isEmpty || _selectedSubcategoryIds.contains(p['subcategory_id']);
       final bool matchesBrand = _selectedBrandIds.isEmpty || _selectedBrandIds.contains(p['brand_id']);
@@ -854,34 +1056,8 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Top Banner Card
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.all(16),
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [theme.colorScheme.primary, theme.colorScheme.secondary],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _isLoggedIn ? 'Welcome, ${_userData?['name']}!' : 'Grand Local Deals!',
-                    style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Direct neighborhood shopping with instant delivery and zero fees.',
-                    style: TextStyle(color: Colors.white, fontSize: 13, height: 1.4),
-                  ),
-                ],
-              ),
-            ),
+            // Top Banner Carousel Slider
+            _buildBannerSlider(theme),
 
             // Top Search Input bar
             Padding(
@@ -926,7 +1102,7 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
               ),
             ),
 
-            // Minimal Category Section (Name above Image, no borders/cards)
+            // Minimal Category Section (Single-select, Name above Image, no borders/cards)
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
               child: Text(
@@ -950,17 +1126,9 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
                   return GestureDetector(
                     onTap: () {
                       setState(() {
-                        if (isSelected) {
-                          _selectedCategoryIds.remove(id);
-                          // Clear matching subcategories
-                          _selectedSubcategoryIds.removeWhere((subId) {
-                            final matchingSub = _subcategories.firstWhere(
-                              (s) => s['id'] == subId,
-                              orElse: () => null,
-                            );
-                            return matchingSub != null && matchingSub['category_id'] == id;
-                          });
-                        } else {
+                        _selectedCategoryIds.clear();
+                        _selectedSubcategoryIds.clear();
+                        if (!isSelected) {
                           _selectedCategoryIds.add(id);
                         }
                       });
@@ -1069,88 +1237,121 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
   }
 
   Widget _buildProductCard(Map<String, dynamic> product, ThemeData theme) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.border, width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.01),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+    // Construct real product network image path
+    final images = product['images'];
+    String imageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/no_image.jpg';
+    if (images != null && images is List && images.isNotEmpty) {
+      final String? filename = images[0]['product_images'];
+      if (filename != null && filename.isNotEmpty) {
+        imageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/product_images/$filename';
+      }
+    }
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ProductDetailScreen(product: product),
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withOpacity(0.05),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-              ),
-              child: Center(
-                child: Icon(
-                  _getCategoryIcon(product['image'] ?? ''),
-                  size: 40,
-                  color: theme.colorScheme.primary,
-                ),
-              ),
+        ).then((_) {
+          CartManager.updateCartCount();
+          _loadCart();
+        });
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppColors.border, width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.01),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  product['name'] ?? 'Product Name',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    color: AppColors.textPrimary,
-                  ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withOpacity(0.05),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  product['desc'] ?? '',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11, color: AppColors.textLight, height: 1.3),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      "\$${product['price']?.toStringAsFixed(2)}",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+                  child: Image.network(
+                    imageUrl,
+                    width: double.infinity,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      color: theme.colorScheme.primary.withOpacity(0.05),
+                      child: Icon(
+                        _getCategoryIcon(product['image'] ?? ''),
+                        size: 40,
                         color: theme.colorScheme.primary,
                       ),
                     ),
-                    GestureDetector(
-                      onTap: () => _addToCart(product),
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primary,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.add_shopping_cart, color: Colors.white, size: 16),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ],
+              ),
             ),
-          ),
-        ],
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    product['name'] ?? 'Product Name',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    product['desc'] ?? '',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11, color: AppColors.textLight, height: 1.3),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        "₹${product['price']?.toStringAsFixed(2)}",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () => _addToCart(product),
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.add_shopping_cart, color: Colors.white, size: 16),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

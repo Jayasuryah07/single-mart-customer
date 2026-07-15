@@ -246,7 +246,15 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
             try {
               final prefs = await SharedPreferences.getInstance();
               await prefs.setString('auth_token', token);
-              await prefs.setString('user_data', json.encode(user));
+              
+              final Map<String, dynamic> userCopy = Map<String, dynamic>.from(user);
+              final dynamic addressList = resData['address'];
+              if (addressList != null) {
+                userCopy['addresses'] = addressList;
+              } else {
+                userCopy['addresses'] = [];
+              }
+              await prefs.setString('user_data', json.encode(userCopy));
             } catch (prefsErr) {
               debugPrint('Error saving session: $prefsErr');
             }
