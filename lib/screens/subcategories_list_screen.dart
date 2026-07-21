@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../theme.dart';
 import '../widgets/cart_button.dart';
@@ -18,10 +19,24 @@ class _SubcategoriesListScreenState extends State<SubcategoriesListScreen> {
   bool _isLoading = true;
   List<dynamic> _subcategories = [];
 
+  String _baseNoImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/no_image.jpg';
+  String _baseSubcategoryImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/category_images/';
+
   @override
   void initState() {
     super.initState();
+    _loadBaseUrls();
     _loadSubcategories();
+  }
+
+  Future<void> _loadBaseUrls() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _baseNoImageUrl = prefs.getString('base_no_image_url') ?? _baseNoImageUrl;
+        _baseSubcategoryImageUrl = prefs.getString('base_subcategory_image_url') ?? prefs.getString('base_category_image_url') ?? _baseSubcategoryImageUrl;
+      });
+    } catch (_) {}
   }
 
   Future<void> _loadSubcategories() async {
@@ -30,6 +45,20 @@ class _SubcategoriesListScreenState extends State<SubcategoriesListScreen> {
       if (response.statusCode == 200) {
         final Map<String, dynamic> body = json.decode(response.body);
         final List<dynamic> allSubs = body['data'] ?? [];
+        
+        final dynamic imageUrls = body['image_url'];
+        if (imageUrls != null && imageUrls is List) {
+          final prefs = await SharedPreferences.getInstance();
+          for (var item in imageUrls) {
+            final imageFor = item['image_for']?.toString();
+            final url = item['image_url']?.toString();
+            if (imageFor == 'Category' && url != null) {
+              await prefs.setString('base_subcategory_image_url', url);
+            } else if (imageFor == 'No Image' && url != null) {
+              await prefs.setString('base_no_image_url', url);
+            }
+          }
+        }
         setState(() {
           _subcategories = allSubs;
           _isLoading = false;
@@ -71,15 +100,15 @@ class _SubcategoriesListScreenState extends State<SubcategoriesListScreen> {
 
   String _getSubcategoryImage(dynamic subsImage) {
     if (subsImage == null || subsImage.toString().isEmpty) {
-      return 'https://agsdemo.in/singlemartapi/public/assets/images/no_image.jpg';
+      return _baseNoImageUrl;
     }
     final String pathStr = subsImage.toString();
     if (pathStr.startsWith('/tmp') || pathStr.startsWith('/var') || pathStr.contains('/')) {
       if (!pathStr.contains('category_images') && (pathStr.startsWith('/') || pathStr.startsWith('\\'))) {
-        return 'https://agsdemo.in/singlemartapi/public/assets/images/no_image.jpg';
+        return _baseNoImageUrl;
       }
     }
-    return 'https://agsdemo.in/singlemartapi/public/assets/images/category_images/$pathStr';
+    return '${_baseSubcategoryImageUrl}$pathStr';
   }
 
   @override

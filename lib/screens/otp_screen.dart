@@ -188,21 +188,7 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
   }
 
   Future<String> _getDeviceId() async {
-    final DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
-    try {
-      if (Platform.isAndroid) {
-        final androidInfo = await deviceInfo.androidInfo;
-        return androidInfo.id;
-      } else if (Platform.isIOS) {
-        final iosInfo = await deviceInfo.iosInfo;
-        return iosInfo.identifierForVendor ?? 'ios_device_id';
-      } else {
-        return 'desktop_device_id';
-      }
-    } catch (e) {
-      debugPrint('Error getting device ID: $e');
-      return 'generic_device_id';
-    }
+    return await ApiService.getOrCreateDeviceId();
   }
 
   Future<void> _completeLoginSession(String apiPassword) async {

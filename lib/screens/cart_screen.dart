@@ -6,6 +6,7 @@ import '../theme.dart';
 import '../widgets/cart_button.dart';
 import 'login_screen.dart';
 import 'checkout_screen.dart';
+import 'product_detail_screen.dart';
 
 class CartScreen extends StatefulWidget {
   const CartScreen({super.key});
@@ -17,6 +18,11 @@ class CartScreen extends StatefulWidget {
 class _CartScreenState extends State<CartScreen> {
   List<Map<String, dynamic>> _cartItems = [];
   bool _isLoading = true;
+  List<dynamic> _activeProducts = [];
+
+  String _baseNoImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/no_image.jpg';
+  String _baseProductImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/product_images/';
+  String _baseProductVariantImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/product_variant_images/';
 
   @override
   void initState() {
@@ -27,43 +33,96 @@ class _CartScreenState extends State<CartScreen> {
   Future<void> _loadCart() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      _baseNoImageUrl = prefs.getString('base_no_image_url') ?? _baseNoImageUrl;
+      _baseProductImageUrl = prefs.getString('base_product_image_url') ?? _baseProductImageUrl;
+      _baseProductVariantImageUrl = prefs.getString('base_product_variant_image_url') ?? _baseProductVariantImageUrl;
       final String? cartStr = prefs.getString('cart_data');
       if (cartStr != null && cartStr.isNotEmpty) {
         final List<dynamic> parsed = json.decode(cartStr);
         setState(() {
           _cartItems = parsed.map((item) => Map<String, dynamic>.from(item)).toList();
         });
+      }
 
-        // Safeguard: resolve missing product images by fetching active products catalog!
-        bool missingProductImg = false;
-        for (var item in _cartItems) {
-          if (item['product_image'] == null) {
-            missingProductImg = true;
-            break;
+      // Fetch active products in cart to allow detailed navigation and match missing images
+      final productsResponse = await ApiService.fetchActiveProducts();
+      if (productsResponse.statusCode == 200) {
+        final body = json.decode(productsResponse.body);
+        final List<dynamic> allProds = body['data'] ?? [];
+
+        final dynamic imageUrls = body['image_url'];
+        if (imageUrls != null && imageUrls is List) {
+          for (var imgItem in imageUrls) {
+            final imageFor = imgItem['image_for']?.toString();
+            final url = imgItem['image_url']?.toString();
+            if (imageFor != null && url != null) {
+              if (imageFor == 'No Image') {
+                await prefs.setString('base_no_image_url', url);
+                _baseNoImageUrl = url;
+              } else if (imageFor == 'Product') {
+                await prefs.setString('base_product_image_url', url);
+                _baseProductImageUrl = url;
+              } else if (imageFor == 'Product Variant') {
+                await prefs.setString('base_product_variant_image_url', url);
+                _baseProductVariantImageUrl = url;
+              }
+            }
           }
         }
 
-        if (missingProductImg) {
-          final productsResponse = await ApiService.fetchActiveProducts();
-          if (productsResponse.statusCode == 200) {
-            final body = json.decode(productsResponse.body);
-            final List<dynamic> allProds = body['data'] ?? [];
-            setState(() {
-              for (var item in _cartItems) {
-                if (item['product_image'] == null) {
-                  final matched = allProds.firstWhere(
-                    (p) => p['id']?.toString() == item['id']?.toString(),
-                    orElse: () => null,
-                  );
-                  if (matched != null && matched['images'] != null && matched['images'] is List && (matched['images'] as List).isNotEmpty) {
-                    item['product_image'] = matched['images'][0]['product_images']?.toString();
-                  }
+        setState(() {
+          _activeProducts = allProds;
+          
+          for (var item in _cartItems) {
+            final matched = allProds.firstWhere(
+              (p) => p['id']?.toString() == item['id']?.toString(),
+              orElse: () => null,
+            );
+            if (matched != null) {
+              dynamic matchedVar;
+              if (item['variant_id'] != null && matched['variants'] != null && (matched['variants'] as List).isNotEmpty) {
+                matchedVar = (matched['variants'] as List).firstWhere(
+                  (v) => v['id']?.toString() == item['variant_id']?.toString(),
+                  orElse: () => null,
+                );
+              }
+
+              if (item['product_image'] == null) {
+                if (matchedVar != null && matchedVar['images'] != null && (matchedVar['images'] as List).isNotEmpty) {
+                  item['product_image'] = matchedVar['images'][0]['product_variant_images']?.toString();
+                  item['is_variant'] = true;
+                }
+                if (item['product_image'] == null && matched['images'] != null && (matched['images'] as List).isNotEmpty) {
+                  item['product_image'] = matched['images'][0]['product_images']?.toString();
                 }
               }
-            });
-            _saveCart();
+
+              // Resolve and inject missing original_price or product_price
+              if (matchedVar != null) {
+                final double discP = double.tryParse(matchedVar['product_discount_price']?.toString() ?? '') ?? 0.0;
+                final double regP = double.tryParse(matchedVar['product_price']?.toString() ?? '') ?? 0.0;
+                if (discP > 0 && regP > discP) {
+                  item['original_price'] = regP;
+                  item['product_price'] = regP;
+                } else if (regP > (double.tryParse(item['price']?.toString() ?? '') ?? 0.0)) {
+                  item['original_price'] = regP;
+                  item['product_price'] = regP;
+                }
+              } else {
+                final double discP = double.tryParse(matched['product_discount_price']?.toString() ?? '') ?? 0.0;
+                final double regP = double.tryParse(matched['product_price']?.toString() ?? '') ?? 0.0;
+                if (discP > 0 && regP > discP) {
+                  item['original_price'] = regP;
+                  item['product_price'] = regP;
+                } else if (regP > (double.tryParse(item['price']?.toString() ?? '') ?? 0.0)) {
+                  item['original_price'] = regP;
+                  item['product_price'] = regP;
+                }
+              }
+            }
           }
-        }
+        });
+        _saveCart();
       }
     } catch (e) {
       debugPrint("Error loading cart: $e");
@@ -346,74 +405,146 @@ class _CartScreenState extends State<CartScreen> {
                 ),
                 child: Row(
                   children: [
-                    item['product_image'] != null && item['product_image'].toString().isNotEmpty
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: Image.network(
-                              "https://agsdemo.in/singlemartapi/public/assets/images/product_images/${item['product_image']}",
-                              width: 64,
-                              height: 64,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Container(
-                                  width: 64,
-                                  height: 64,
-                                  decoration: BoxDecoration(
-                                    color: theme.colorScheme.primary.withOpacity(0.05),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Center(
-                                    child: Icon(Icons.shopping_bag_outlined, color: theme.colorScheme.primary, size: 28),
-                                  ),
-                                );
-                              },
-                            ),
-                          )
-                        : Container(
-                            width: 64,
-                            height: 64,
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primary.withOpacity(0.05),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Center(
-                              child: Icon(Icons.shopping_bag_outlined, color: theme.colorScheme.primary, size: 28),
-                            ),
-                          ),
-                    const SizedBox(width: 16),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  item['name'],
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
-                                ),
+                      child: GestureDetector(
+                        onTap: () {
+                          final matched = _activeProducts.firstWhere(
+                            (p) => p['id']?.toString() == item['id']?.toString(),
+                            orElse: () => null,
+                          );
+                          if (matched != null) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => ProductDetailScreen(product: matched),
                               ),
-                              // Delete Button
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline_rounded, color: AppColors.error, size: 20),
-                                onPressed: () {
-                                  setState(() {
-                                    _cartItems.removeAt(index);
-                                  });
-                                  _saveCart();
-                                },
+                            ).then((_) {
+                              _loadCart();
+                            });
+                          } else {
+                            final fallbackProduct = {
+                              "id": item['id'],
+                              "product_name": item['name'],
+                              "product_price": item['price']?.toString(),
+                              "product_short_description": item['desc'],
+                              "images": item['product_image'] != null ? [
+                                {
+                                  "product_images": item['product_image']
+                                }
+                              ] : [],
+                            };
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => ProductDetailScreen(product: fallbackProduct),
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '₹${item['price']}',
-                            style: TextStyle(fontSize: 13, color: theme.colorScheme.primary, fontWeight: FontWeight.bold),
-                          ),
-                        ],
+                            ).then((_) {
+                              _loadCart();
+                            });
+                          }
+                        },
+                        behavior: HitTestBehavior.opaque,
+                        child: Row(
+                          children: [
+                            item['product_image'] != null && item['product_image'].toString().isNotEmpty
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: Image.network(
+                                      (item['is_variant'] == true || item['variant_id'] != null)
+                                          ? "${_baseProductVariantImageUrl}${item['product_image']}"
+                                          : "${_baseProductImageUrl}${item['product_image']}",
+                                      width: 64,
+                                      height: 64,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (context, error, stackTrace) {
+                                        return Container(
+                                          width: 64,
+                                          height: 64,
+                                          decoration: BoxDecoration(
+                                            color: theme.colorScheme.primary.withOpacity(0.05),
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          child: Center(
+                                            child: Icon(Icons.shopping_bag_outlined, color: theme.colorScheme.primary, size: 28),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  )
+                                : Container(
+                                    width: 64,
+                                    height: 64,
+                                    decoration: BoxDecoration(
+                                      color: theme.colorScheme.primary.withOpacity(0.05),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Center(
+                                      child: Icon(Icons.shopping_bag_outlined, color: theme.colorScheme.primary, size: 28),
+                                    ),
+                                  ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          item['name'],
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
+                                        ),
+                                      ),
+                                      // Delete Button
+                                      IconButton(
+                                        icon: const Icon(Icons.delete_outline_rounded, color: AppColors.error, size: 20),
+                                        onPressed: () {
+                                          setState(() {
+                                            _cartItems.removeAt(index);
+                                          });
+                                          _saveCart();
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                  if (item['variant_attributes'] != null && item['variant_attributes'].toString().isNotEmpty) ...[
+                                    Text(
+                                      'Variant: ${item['variant_attributes']}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w600),
+                                    ),
+                                    const SizedBox(height: 2),
+                                  ],
+                                  const SizedBox(height: 2),
+                                  Row(
+                                    children: [
+                                      Text(
+                                        '₹${(item['price'] is num ? item['price'] : double.tryParse(item['price']?.toString() ?? '0') ?? 0.0).toStringAsFixed(2)}',
+                                        style: TextStyle(fontSize: 14, color: theme.colorScheme.primary, fontWeight: FontWeight.bold),
+                                      ),
+                                      if (_getItemOriginalPrice(item) > (item['price'] is num ? item['price'] : double.tryParse(item['price']?.toString() ?? '0') ?? 0.0)) ...[
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          '₹${_getItemOriginalPrice(item).toStringAsFixed(2)}',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: AppColors.textMuted,
+                                            fontWeight: FontWeight.w500,
+                                            decoration: TextDecoration.lineThrough,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     Row(
@@ -479,5 +610,17 @@ class _CartScreenState extends State<CartScreen> {
         ),
       ],
     );
+  }
+
+  double _getItemOriginalPrice(dynamic item) {
+    if (item['original_price'] != null) {
+      final double origP = double.tryParse(item['original_price']?.toString() ?? '') ?? 0.0;
+      if (origP > 0) return origP;
+    }
+    if (item['product_price'] != null) {
+      final double prodP = double.tryParse(item['product_price']?.toString() ?? '') ?? 0.0;
+      if (prodP > 0) return prodP;
+    }
+    return 0.0;
   }
 }

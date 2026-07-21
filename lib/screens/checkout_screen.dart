@@ -38,6 +38,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   
   final TextEditingController _remarksController = TextEditingController();
 
+  String _baseNoImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/no_image.jpg';
+  String _baseProductImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/product_images/';
+  String _baseProductVariantImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/product_variant_images/';
+
   @override
   void initState() {
     super.initState();
@@ -70,6 +74,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     setState(() => _isLoadingProfile = true);
     try {
       final prefs = await SharedPreferences.getInstance();
+      _baseNoImageUrl = prefs.getString('base_no_image_url') ?? _baseNoImageUrl;
+      _baseProductImageUrl = prefs.getString('base_product_image_url') ?? _baseProductImageUrl;
+      _baseProductVariantImageUrl = prefs.getString('base_product_variant_image_url') ?? _baseProductVariantImageUrl;
+
       final String? userDataStr = prefs.getString('user_data');
       if (userDataStr != null && userDataStr.isNotEmpty) {
         final localData = json.decode(userDataStr);
@@ -103,32 +111,65 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       // Identify the default address
       _findDefaultAddress();
 
-      // Safeguard: If any cart item is missing product_vendor_id, fetch catalog to resolve them!
-      bool missingVendorId = false;
-      for (var item in widget.cartItems) {
-        if (item['product_vendor_id'] == null && item['vendor_id'] == null && item['created_by'] == null) {
-          missingVendorId = true;
-          break;
-        }
-      }
-
-      if (missingVendorId) {
+      // Fetch active catalog to populate vendor ID, variant ID, and original_price for all cart items
+      try {
         final productsResponse = await ApiService.fetchActiveProducts();
         if (productsResponse.statusCode == 200) {
           final body = json.decode(productsResponse.body);
           final List<dynamic> allProds = body['data'] ?? [];
           for (var item in widget.cartItems) {
-            if (item['product_vendor_id'] == null && item['vendor_id'] == null && item['created_by'] == null) {
-              final matched = allProds.firstWhere(
-                (p) => p['id']?.toString() == item['id']?.toString(),
-                orElse: () => null,
-              );
-              if (matched != null) {
+            final matched = allProds.firstWhere(
+              (p) => p['id']?.toString() == item['id']?.toString(),
+              orElse: () => null,
+            );
+            if (matched != null) {
+              if (item['product_vendor_id'] == null && item['vendor_id'] == null && item['created_by'] == null) {
                 item['product_vendor_id'] = matched['product_vendor_id'];
+              }
+              final bool hasVars = (matched['has_variants'] == 1 || matched['has_variants'] == '1') &&
+                  matched['variants'] != null && (matched['variants'] as List).isNotEmpty;
+
+              dynamic matchedVar;
+              if (hasVars) {
+                final varId = item['variant_id'] ?? item['order_product_variant_id'];
+                if (varId != null) {
+                  matchedVar = (matched['variants'] as List).firstWhere(
+                    (v) => v['id']?.toString() == varId.toString(),
+                    orElse: () => null,
+                  );
+                } else {
+                  matchedVar = matched['variants'][0];
+                  final firstVarId = matchedVar['id'];
+                  item['variant_id'] = firstVarId;
+                  item['order_product_variant_id'] = firstVarId;
+                  item['is_variant'] = true;
+                }
+              }
+
+              if (item['original_price'] == null || (double.tryParse(item['original_price']?.toString() ?? '') ?? 0.0) == 0) {
+                if (matchedVar != null) {
+                  final double discP = double.tryParse(matchedVar['product_discount_price']?.toString() ?? '') ?? 0.0;
+                  final double regP = double.tryParse(matchedVar['product_price']?.toString() ?? '') ?? 0.0;
+                  if (discP > 0 && regP > discP) {
+                    item['original_price'] = regP;
+                  } else if (regP > (double.tryParse(item['price']?.toString() ?? '') ?? 0.0)) {
+                    item['original_price'] = regP;
+                  }
+                } else {
+                  final double discP = double.tryParse(matched['product_discount_price']?.toString() ?? '') ?? 0.0;
+                  final double regP = double.tryParse(matched['product_price']?.toString() ?? '') ?? 0.0;
+                  if (discP > 0 && regP > discP) {
+                    item['original_price'] = regP;
+                  } else if (regP > (double.tryParse(item['price']?.toString() ?? '') ?? 0.0)) {
+                    item['original_price'] = regP;
+                  }
+                }
               }
             }
           }
         }
+      } catch (e) {
+        debugPrint("Error fetching active products on checkout: $e");
       }
     } catch (e) {
       debugPrint("Error loading profile on checkout: $e");
@@ -717,23 +758,84 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                   const Text('Items from this seller:', style: TextStyle(fontSize: 11, color: AppColors.textMuted, fontWeight: FontWeight.bold)),
                                   const SizedBox(height: 6),
                                   ...vendorItems.map((item) {
+                                    final String? imgFile = item['product_image']?.toString();
+                                    final String imgUrl = (imgFile != null && imgFile.isNotEmpty)
+                                        ? ((item['is_variant'] == true || item['variant_id'] != null)
+                                            ? '${_baseProductVariantImageUrl}$imgFile'
+                                            : '${_baseProductImageUrl}$imgFile')
+                                        : _baseNoImageUrl;
+
                                     return Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 4.0),
+                                      padding: const EdgeInsets.symmetric(vertical: 6.0),
                                       child: Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                         children: [
-                                          Expanded(
-                                            child: Text(
-                                              '• ${item['name']} (x${item['quantity']})',
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+                                          Container(
+                                            width: 40,
+                                            height: 40,
+                                            decoration: BoxDecoration(
+                                              color: AppColors.surface,
+                                              borderRadius: BorderRadius.circular(8),
+                                              border: Border.all(color: AppColors.border),
+                                            ),
+                                            child: ClipRRect(
+                                              borderRadius: BorderRadius.circular(6),
+                                              child: Image.network(
+                                                imgUrl,
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (context, error, stackTrace) =>
+                                                    const Icon(Icons.image_not_supported_rounded, size: 18, color: AppColors.textMuted),
+                                              ),
                                             ),
                                           ),
-                                          Text(
-                                            '₹${(item['price'] as double) * (item['quantity'] as int)}',
-                                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  item['name'] ?? 'Product',
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+                                                ),
+                                                if (item['variant_attributes'] != null && item['variant_attributes'].toString().isNotEmpty)
+                                                  Text(
+                                                    'Variant: ${item['variant_attributes']}',
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: const TextStyle(fontSize: 11, color: AppColors.textSecondary, fontWeight: FontWeight.w600),
+                                                  ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                   'Qty: ${item['quantity']}',
+                                                   style: const TextStyle(fontSize: 11, color: AppColors.textLight),
+                                                 ),
+                                               ],
+                                             ),
+                                           ),
+                                           const SizedBox(width: 12),
+                                           Column(
+                                             crossAxisAlignment: CrossAxisAlignment.end,
+                                             mainAxisAlignment: MainAxisAlignment.center,
+                                             children: [
+                                               Text(
+                                                 '₹${((item['price'] is num ? item['price'] : double.tryParse(item['price']?.toString() ?? '0') ?? 0.0) * (item['quantity'] is num ? item['quantity'] : int.tryParse(item['quantity']?.toString() ?? '1') ?? 1)).toStringAsFixed(2)}',
+                                                 style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                                               ),
+                                               if (_getItemOriginalPrice(item) > (item['price'] is num ? item['price'] : double.tryParse(item['price']?.toString() ?? '0') ?? 0.0)) ...[
+                                                 const SizedBox(height: 2),
+                                                 Text(
+                                                   '₹${(_getItemOriginalPrice(item) * (item['quantity'] is num ? item['quantity'] : int.tryParse(item['quantity']?.toString() ?? '1') ?? 1)).toStringAsFixed(2)}',
+                                                   style: const TextStyle(
+                                                     fontSize: 11,
+                                                     fontWeight: FontWeight.w500,
+                                                     color: AppColors.textMuted,
+                                                     decoration: TextDecoration.lineThrough,
+                                                   ),
+                                                 ),
+                                               ],
+                                             ],
+                                           ),
                                         ],
                                       ),
                                     );
@@ -1106,5 +1208,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         letterSpacing: 0.5,
       ),
     );
+  }
+
+  double _getItemOriginalPrice(dynamic item) {
+    if (item['original_price'] != null) {
+      final double origP = double.tryParse(item['original_price']?.toString() ?? '') ?? 0.0;
+      if (origP > 0) return origP;
+    }
+    if (item['product_price'] != null) {
+      final double prodP = double.tryParse(item['product_price']?.toString() ?? '') ?? 0.0;
+      if (prodP > 0) return prodP;
+    }
+    return 0.0;
   }
 }

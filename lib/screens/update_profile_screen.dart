@@ -35,9 +35,12 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
   String _selectedGender = 'Male';
   final List<String> _genders = ['Male', 'Female', 'Other'];
 
+  String _baseUserImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/user_images/';
+
   @override
   void initState() {
     super.initState();
+    _loadBaseUrls();
     _currentUserData = Map.from(widget.userData);
     _nameController = TextEditingController(text: _currentUserData['name']?.toString() ?? '');
     _ownerNameController = TextEditingController(text: _currentUserData['owner_name']?.toString() ?? '');
@@ -55,6 +58,15 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
     }
 
     _fetchProfileDetails();
+  }
+
+  Future<void> _loadBaseUrls() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _baseUserImageUrl = prefs.getString('base_user_image_url') ?? _baseUserImageUrl;
+      });
+    } catch (_) {}
   }
 
   @override
@@ -395,7 +407,7 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
 
     final String? serverImage = _currentUserData['user_image']?.toString();
     final String imageUrl = (serverImage != null && serverImage.isNotEmpty)
-        ? "https://agsdemo.in/singlemartapi/public/assets/images/user_images/$serverImage"
+        ? "${_baseUserImageUrl}$serverImage"
         : "";
 
     return Scaffold(

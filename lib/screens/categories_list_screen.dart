@@ -1,23 +1,48 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../theme.dart';
 import '../widgets/cart_button.dart';
 import 'products_list_screen.dart';
 
-class CategoriesListScreen extends StatelessWidget {
+class CategoriesListScreen extends StatefulWidget {
   final List<dynamic> categories;
   const CategoriesListScreen({super.key, required this.categories});
 
+  @override
+  State<CategoriesListScreen> createState() => _CategoriesListScreenState();
+}
+
+class _CategoriesListScreenState extends State<CategoriesListScreen> {
+  String _baseNoImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/no_image.jpg';
+  String _baseCategoryImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/category_images/';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBaseUrls();
+  }
+
+  Future<void> _loadBaseUrls() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _baseNoImageUrl = prefs.getString('base_no_image_url') ?? _baseNoImageUrl;
+        _baseCategoryImageUrl = prefs.getString('base_category_image_url') ?? _baseCategoryImageUrl;
+      });
+    } catch (_) {}
+  }
+
   String _getCategoryImage(dynamic categoriesImage) {
     if (categoriesImage == null || categoriesImage.toString().isEmpty) {
-      return 'https://agsdemo.in/singlemartapi/public/assets/images/no_image.jpg';
+      return _baseNoImageUrl;
     }
     final String pathStr = categoriesImage.toString();
     if (pathStr.startsWith('/tmp') || pathStr.startsWith('/var') || pathStr.contains('/')) {
       if (!pathStr.contains('category_images') && (pathStr.startsWith('/') || pathStr.startsWith('\\'))) {
-        return 'https://agsdemo.in/singlemartapi/public/assets/images/no_image.jpg';
+        return _baseNoImageUrl;
       }
     }
-    return 'https://agsdemo.in/singlemartapi/public/assets/images/category_images/$pathStr';
+    return '${_baseCategoryImageUrl}$pathStr';
   }
 
   @override
@@ -39,7 +64,7 @@ class CategoriesListScreen extends StatelessWidget {
           SizedBox(width: 12),
         ],
       ),
-      body: categories.isEmpty
+      body: widget.categories.isEmpty
           ? const Center(child: Text("No categories found."))
           : GridView.builder(
               padding: const EdgeInsets.all(16),
@@ -49,9 +74,9 @@ class CategoriesListScreen extends StatelessWidget {
                 mainAxisSpacing: 16,
                 childAspectRatio: 0.9,
               ),
-              itemCount: categories.length,
+              itemCount: widget.categories.length,
               itemBuilder: (context, index) {
-                final cat = categories[index];
+                final cat = widget.categories[index];
                 final String imageUrl = _getCategoryImage(cat['categories_image']);
                 
                 return GestureDetector(
