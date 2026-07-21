@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../theme.dart';
+import 'product_detail_screen.dart';
 
 class OrderHistoryScreen extends StatefulWidget {
   final String token;
@@ -21,11 +23,29 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
   bool _isLoading = true;
   String _errorMessage = '';
   String _selectedFilter = 'All'; // All, Pending, Processing, Delivered
+  List<dynamic> _activeProducts = [];
+
+  String _baseNoImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/no_image.jpg';
+  String _baseProductImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/product_images/';
 
   @override
   void initState() {
     super.initState();
+    _loadBaseUrls();
     _loadOrders();
+  }
+
+  String _baseProductVariantImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/product_variant_images/';
+
+  Future<void> _loadBaseUrls() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _baseNoImageUrl = prefs.getString('base_no_image_url') ?? _baseNoImageUrl;
+        _baseProductImageUrl = prefs.getString('base_product_image_url') ?? _baseProductImageUrl;
+        _baseProductVariantImageUrl = prefs.getString('base_product_variant_image_url') ?? _baseProductVariantImageUrl;
+      });
+    } catch (_) {}
   }
 
   Future<void> _loadOrders() async {
@@ -35,17 +55,73 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
     });
 
     try {
-      final response = await ApiService.fetchOrders(widget.token);
-      if (response.statusCode == 200) {
-        final body = json.decode(response.body);
-        setState(() {
-          _orders = body['data'] ?? [];
-        });
+      final responses = await Future.wait([
+        ApiService.fetchOrders(widget.token),
+        ApiService.fetchActiveProducts(),
+      ]);
+
+      final ordersRes = responses[0];
+      final prodsRes = responses[1];
+
+      List<dynamic> loadedOrders = [];
+      List<dynamic> activeProducts = [];
+
+      if (ordersRes.statusCode == 200) {
+        final body = json.decode(ordersRes.body);
+        loadedOrders = body['data'] ?? [];
       } else {
         setState(() {
           _errorMessage = 'Failed to load order history. Please try again.';
         });
+        return;
       }
+
+      
+      if (prodsRes.statusCode == 200) {
+        final body = json.decode(prodsRes.body);
+        activeProducts = body['data'] ?? [];
+      }
+
+      for (var order in loadedOrders) {
+        final List<dynamic> subs = order['subs'] ?? [];
+        for (var sub in subs) {
+          final subProdId = sub['product_id']?.toString() ?? sub['order_product_id']?.toString();
+          final subVarId = sub['product_variant_id']?.toString() ?? sub['order_product_variant_id']?.toString() ?? sub['variant_id']?.toString();
+          if (subProdId != null) {
+            final matchedProd = activeProducts.firstWhere(
+              (p) => p['id']?.toString() == subProdId,
+              orElse: () => null,
+            );
+            if (matchedProd != null) {
+              if (subVarId != null && matchedProd['variants'] != null && matchedProd['variants'] is List) {
+                final matchedVar = (matchedProd['variants'] as List).firstWhere(
+                  (v) => v['id']?.toString() == subVarId,
+                  orElse: () => null,
+                );
+                if (matchedVar != null) {
+                  if (matchedVar['images'] != null && matchedVar['images'] is List && (matchedVar['images'] as List).isNotEmpty) {
+                    sub['injected_product_image'] = matchedVar['images'][0]['product_variant_images']?.toString();
+                    sub['is_variant_image'] = true;
+                  }
+                  if (sub['variant_attributes'] == null || (sub['variant_attributes'] is List && (sub['variant_attributes'] as List).isEmpty)) {
+                    if (matchedVar['attributes'] != null) {
+                      sub['variant_attributes'] = matchedVar['attributes'];
+                    }
+                  }
+                }
+              }
+              if (sub['injected_product_image'] == null && matchedProd['images'] != null && matchedProd['images'] is List && (matchedProd['images'] as List).isNotEmpty) {
+                sub['injected_product_image'] = matchedProd['images'][0]['product_images']?.toString();
+              }
+            }
+          }
+        }
+      }
+
+      setState(() {
+        _orders = loadedOrders;
+        _activeProducts = activeProducts;
+      });
     } catch (e) {
       debugPrint("Error loading order history: $e");
       setState(() {
@@ -401,24 +477,113 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                                               
                                               // Products under this vendor
                                               ...groupItems.map((item) {
+                                                final imgUrl = _getProductImageUrl(item);
                                                 return Padding(
-                                                  padding: const EdgeInsets.symmetric(vertical: 3.0),
-                                                  child: Row(
-                                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                    children: [
-                                                      Expanded(
-                                                        child: Text(
-                                                          '• ${item['product_name']} (x${item['order_quantity']})',
-                                                          maxLines: 1,
-                                                          overflow: TextOverflow.ellipsis,
-                                                          style: const TextStyle(fontSize: 12, color: AppColors.textLight),
+                                                  padding: const EdgeInsets.symmetric(vertical: 4.0),
+                                                  child: GestureDetector(
+                                                    onTap: () {
+                                                      final subProdId = item['product_id']?.toString() ?? item['order_product_id']?.toString();
+                                                      if (subProdId != null) {
+                                                        final matched = _activeProducts.firstWhere(
+                                                          (p) => p['id']?.toString() == subProdId,
+                                                          orElse: () => null,
+                                                        );
+                                                        if (matched != null) {
+                                                          Navigator.push(
+                                                            context,
+                                                            MaterialPageRoute(
+                                                              builder: (context) => ProductDetailScreen(product: matched),
+                                                            ),
+                                                          ).then((_) => _loadOrders());
+                                                        } else {
+                                                          final fallbackProduct = {
+                                                            "id": int.tryParse(subProdId) ?? 0,
+                                                            "product_name": item['product_name'] ?? 'Product',
+                                                            "product_price": item['order_amount']?.toString(),
+                                                            "images": item['injected_product_image'] != null ? [
+                                                              {
+                                                                "product_images": item['injected_product_image']
+                                                              }
+                                                            ] : [],
+                                                          };
+                                                          Navigator.push(
+                                                            context,
+                                                            MaterialPageRoute(
+                                                              builder: (context) => ProductDetailScreen(product: fallbackProduct),
+                                                            ),
+                                                          ).then((_) => _loadOrders());
+                                                        }
+                                                      }
+                                                    },
+                                                    behavior: HitTestBehavior.opaque,
+                                                    child: Row(
+                                                      children: [
+                                                        Container(
+                                                          width: 32,
+                                                          height: 32,
+                                                          decoration: BoxDecoration(
+                                                            color: Colors.white,
+                                                            borderRadius: BorderRadius.circular(6),
+                                                            border: Border.all(color: AppColors.border),
+                                                          ),
+                                                          child: ClipRRect(
+                                                            borderRadius: BorderRadius.circular(4),
+                                                            child: Image.network(
+                                                              imgUrl,
+                                                              fit: BoxFit.cover,
+                                                              errorBuilder: (context, error, stackTrace) =>
+                                                                  const Icon(Icons.image_not_supported_rounded, size: 14, color: AppColors.textMuted),
+                                                            ),
+                                                          ),
                                                         ),
-                                                      ),
-                                                      Text(
-                                                        '₹${item['order_amount']}',
-                                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                                                      ),
-                                                    ],
+                                                        const SizedBox(width: 8),
+                                                        Expanded(
+                                                          child: Column(
+                                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                                            children: [
+                                                              Text(
+                                                                '${item['product_name']} (x${item['order_quantity']})',
+                                                                maxLines: 1,
+                                                                overflow: TextOverflow.ellipsis,
+                                                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                                                              ),
+                                                              if (_formatItemVariantAttributes(item).isNotEmpty) ...[
+                                                                const SizedBox(height: 2),
+                                                                Text(
+                                                                  'Variant: ${_formatItemVariantAttributes(item)}',
+                                                                  maxLines: 1,
+                                                                  overflow: TextOverflow.ellipsis,
+                                                                  style: const TextStyle(fontSize: 11, color: AppColors.textSecondary, fontWeight: FontWeight.w500),
+                                                                ),
+                                                              ],
+                                                            ],
+                                                          ),
+                                                        ),
+                                                         const SizedBox(width: 8),
+                                                         Column(
+                                                           crossAxisAlignment: CrossAxisAlignment.end,
+                                                           mainAxisAlignment: MainAxisAlignment.center,
+                                                           children: [
+                                                             Text(
+                                                               '₹${item['order_amount']}',
+                                                               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                                                             ),
+                                                             if (_hasItemDiscountPrice(item)) ...[
+                                                               const SizedBox(height: 2),
+                                                               Text(
+                                                                 '₹${_getItemOriginalTotal(item)}',
+                                                                 style: const TextStyle(
+                                                                   fontSize: 11,
+                                                                   fontWeight: FontWeight.w500,
+                                                                   color: AppColors.textMuted,
+                                                                   decoration: TextDecoration.lineThrough,
+                                                                 ),
+                                                               ),
+                                                             ],
+                                                           ],
+                                                         ),
+                                                      ],
+                                                    ),
                                                   ),
                                                 );
                                               }).toList(),
@@ -455,25 +620,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                                                       'UTR: $utr',
                                                       style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
                                                     ),
-                                                    if (screenshot != null && screenshot.toString().trim().isNotEmpty)
-                                                      GestureDetector(
-                                                        onTap: () => _showProofDialog(screenshot.toString()),
-                                                        child: const Row(
-                                                          children: [
-                                                            Icon(Icons.image_outlined, size: 14, color: AppColors.primary),
-                                                            SizedBox(width: 4),
-                                                            Text(
-                                                              'View Proof',
-                                                              style: TextStyle(
-                                                                fontSize: 11,
-                                                                fontWeight: FontWeight.bold,
-                                                                color: AppColors.primary,
-                                                                decoration: TextDecoration.underline,
-                                                              ),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                      ),
+                                                    
                                                   ],
                                                 ),
                                               ],
@@ -515,5 +662,72 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
         ],
       ),
     );
+  }
+
+  String _getProductImageUrl(dynamic item) {
+    dynamic imgVal = item['injected_product_image'] ?? item['product_image'] ?? item['image'] ?? item['product_images'];
+    final bool isVarImg = item['is_variant_image'] == true || item['is_variant'] == true;
+    
+    if (imgVal == null && item['product'] != null && item['product'] is Map) {
+      final prod = item['product'] as Map;
+      imgVal = prod['product_image'] ?? prod['image'];
+      if (imgVal == null && prod['images'] != null && prod['images'] is List && (prod['images'] as List).isNotEmpty) {
+        final imgList = prod['images'] as List;
+        imgVal = imgList[0]['product_images'] ?? imgList[0]['image'];
+      }
+    }
+    
+    if (imgVal == null && item['images'] != null && item['images'] is List && (item['images'] as List).isNotEmpty) {
+      final imgList = item['images'] as List;
+      imgVal = imgList[0]['product_images'] ?? imgList[0]['image'];
+    }
+
+    if (imgVal == null || imgVal.toString().trim().isEmpty) {
+      return _baseNoImageUrl;
+    }
+    
+    final String imgStr = imgVal.toString();
+    if (imgStr.startsWith('http://') || imgStr.startsWith('https://')) {
+      return imgStr;
+    }
+    return isVarImg ? '${_baseProductVariantImageUrl}$imgStr' : '${_baseProductImageUrl}$imgStr';
+  }
+
+  String _formatItemVariantAttributes(dynamic item) {
+    if (item['variant_attributes'] != null) {
+      final vAttrs = item['variant_attributes'];
+      if (vAttrs is List && vAttrs.isNotEmpty) {
+        final List<String> parts = [];
+        for (var attr in vAttrs) {
+          if (attr is Map) {
+            final name = attr['attribute_name']?.toString() ?? '';
+            final val = attr['attribute_value']?.toString() ?? '';
+            if (val.isNotEmpty) {
+              parts.add(name.isNotEmpty ? '$name: $val' : val);
+            }
+          }
+        }
+        if (parts.isNotEmpty) {
+          return parts.join(', ');
+        }
+      } else if (vAttrs is String && vAttrs.isNotEmpty) {
+        return vAttrs;
+      }
+    }
+    return '';
+  }
+
+  bool _hasItemDiscountPrice(dynamic item) {
+    final double amt = double.tryParse(item['order_amount']?.toString() ?? '') ?? 0.0;
+    final double unitPrice = double.tryParse(item['order_price']?.toString() ?? '') ?? 0.0;
+    final double qty = double.tryParse(item['order_quantity']?.toString() ?? '') ?? 1.0;
+    final double origTotal = unitPrice * qty;
+    return origTotal > amt;
+  }
+
+  String _getItemOriginalTotal(dynamic item) {
+    final double unitPrice = double.tryParse(item['order_price']?.toString() ?? '') ?? 0.0;
+    final double qty = double.tryParse(item['order_quantity']?.toString() ?? '') ?? 1.0;
+    return (unitPrice * qty).toStringAsFixed(2);
   }
 }

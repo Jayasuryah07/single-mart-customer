@@ -1,9 +1,49 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
   static const String baseUrl = 'https://agsdemo.in/singlemartapi/public/api';
+
+  /// Helper to generate a UUID v4 string
+  static String _generateUuidV4() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+
+    // Set version to 4 (0100)
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    // Set variant to IETF (10xx)
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20, 32)}';
+  }
+
+  /// Get or Create persistent Device ID stored in SharedPreferences (UUID v4)
+  static Future<String> getOrCreateDeviceId() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      String? deviceId = prefs.getString('device_id');
+
+      if (deviceId == null || deviceId.isEmpty) {
+        deviceId = _generateUuidV4();
+        await prefs.setString('device_id', deviceId);
+      }
+
+      return deviceId;
+    } catch (e) {
+      debugPrint('Error getting or creating device ID: $e');
+      return _generateUuidV4();
+    }
+  }
+
+  /// Helper method for backward compatibility
+  static Future<String> getDeviceId() async {
+    return await getOrCreateDeviceId();
+  }
 
   /// 1. Check App Status and Maintenance Mode
   static Future<http.Response> checkStatus() async {
@@ -25,15 +65,19 @@ class ApiService {
   /// 3. Login User
   static Future<http.Response> login({
     required String mobile,
-    required String deviceId,
     required String password,
+    String? deviceId,
   }) async {
+    final String resolvedDeviceId = (deviceId != null && deviceId.isNotEmpty)
+        ? deviceId
+        : await getDeviceId();
+
     final uri = Uri.parse('$baseUrl/login');
     return await http.post(
       uri,
       body: {
         'mobile': mobile,
-        'device_id': deviceId,
+        'device_id': resolvedDeviceId,
         'password': password,
       },
     ).timeout(const Duration(seconds: 10));
@@ -260,7 +304,13 @@ class ApiService {
       final vIdRaw = item['product_vendor_id'] ?? item['vendor_id'] ?? item['created_by'] ?? 0;
       final int vId = vIdRaw is int ? vIdRaw : int.tryParse(vIdRaw.toString()) ?? 0;
 
+      final dynamic rawVarId = item['order_product_variant_id'] ?? item['variant_id'] ?? item['product_variant_id'];
+      final String variantIdStr = (rawVarId != null && rawVarId.toString().isNotEmpty && rawVarId.toString() != 'null')
+          ? rawVarId.toString()
+          : '';
+
       request.fields['subs[$i][order_product_id]'] = item['id'].toString();
+      request.fields['subs[$i][order_product_variant_id]'] = variantIdStr;
       request.fields['subs[$i][order_quantity]'] = item['quantity'].toString();
       request.fields['subs[$i][order_payment_utr_no]'] = utrByVendor[vId] ?? '';
 
@@ -274,6 +324,13 @@ class ApiService {
         );
       }
     }
+
+    // DEBUG: Print all request fields before sending
+    print("===== REQUEST FIELDS =====");
+    request.fields.forEach((key, value) {
+      print("$key : $value");
+    });
+    print("===== END REQUEST FIELDS =====");
 
     final streamedRes = await request.send().timeout(const Duration(seconds: 35));
     return await http.Response.fromStream(streamedRes);
@@ -289,5 +346,28 @@ class ApiService {
         'Accept': 'application/json',
       },
     ).timeout(const Duration(seconds: 15));
+  }
+
+  /// 20. Post Product Review
+  static Future<http.Response> postProductReview({
+    required String productId,
+    required String productRating,
+    required String productReview,
+    required String token,
+  }) async {
+    final uri = Uri.parse('$baseUrl/product-review');
+    return await http.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: json.encode({
+        'product_id': productId,
+        'product_rating': productRating,
+        'product_review': productReview,
+      }),
+    ).timeout(const Duration(seconds: 10));
   }
 }

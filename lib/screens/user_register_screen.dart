@@ -294,6 +294,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
       request.fields['business_document'] = '';
       request.fields['gst_number'] = '';
       request.fields['pan_number'] = '';
+      request.fields['user_image'] = '';
 
       // Address fields - Send as array format
       request.fields['addresses[0][address_line_1]'] = addressLine1;
@@ -308,7 +309,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
       request.fields['addresses[0][is_default]'] = '1';
 
       // Add image file if selected
-      if (_imageFile != null) {
+      if (_imageFile != null && await _imageFile!.exists()) {
         request.files.add(
           await http.MultipartFile.fromPath(
             'user_image',

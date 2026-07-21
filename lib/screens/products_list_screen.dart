@@ -37,6 +37,10 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
   int? _selectedBrandId;
   List<Map<String, dynamic>> _cartItems = [];
 
+  String _baseNoImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/no_image.jpg';
+  String _baseProductImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/product_images/';
+  String _baseProductVariantImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/product_variant_images/';
+
   // Default fallback mock list
   final List<Map<String, dynamic>> _fallbackProducts = [
     // --- Electronics (Category ID: 1) ---
@@ -193,12 +197,23 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
   @override
   void initState() {
     super.initState();
+    _loadBaseUrls();
     _selectedSubcategoryId = widget.subcategoryId;
     _selectedBrandId = widget.initialBrandId;
     _loadSubcategories();
     _loadBrands();
     _loadProducts();
     _loadCart();
+  }
+
+  Future<void> _loadBaseUrls() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _baseNoImageUrl = prefs.getString('base_no_image_url') ?? _baseNoImageUrl;
+        _baseProductImageUrl = prefs.getString('base_product_image_url') ?? _baseProductImageUrl;
+      });
+    } catch (_) {}
   }
 
   Future<void> _loadSubcategories() async {
@@ -278,35 +293,76 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
       if (response.statusCode == 200) {
         final Map<String, dynamic> body = json.decode(response.body);
         final List<dynamic> allProds = body['data'] ?? [];
+        
+        final dynamic imageUrls = body['image_url'];
+        if (imageUrls != null && imageUrls is List) {
+          final prefs = await SharedPreferences.getInstance();
+          for (var item in imageUrls) {
+            final imageFor = item['image_for']?.toString();
+            final url = item['image_url']?.toString();
+            if (imageFor != null && url != null) {
+              if (imageFor == 'No Image') {
+                await prefs.setString('base_no_image_url', url);
+                _baseNoImageUrl = url;
+              } else if (imageFor == 'User') {
+                await prefs.setString('base_user_image_url', url);
+              } else if (imageFor == 'Product') {
+                await prefs.setString('base_product_image_url', url);
+                _baseProductImageUrl = url;
+              } else if (imageFor == 'Product Variant') {
+                await prefs.setString('base_product_variant_image_url', url);
+                _baseProductVariantImageUrl = url;
+              }
+            }
+          }
+        }
         if (allProds.isNotEmpty) {
           setState(() {
             _allProducts = allProds.map((p) {
-              final double pPrice = double.tryParse(p['product_discount_price']?.toString() ?? '') ??
-                  double.tryParse(p['product_price']?.toString() ?? '') ??
-                  0.0;
-              return {
-                "id": p['id'],
-                "name": p['product_name'] ?? 'Product',
-                "price": pPrice,
-                "desc": p['product_short_description'] ?? '',
-                "image": p['categories_name'] ?? '',
-                "category_id": p['product_category_id'],
-                "subcategory_id": p['product_sub_category_id'],
-                "brand_id": p['product_brand_id'],
-                "product_vendor_id": p['product_vendor_id'],
-                // Retain source payload maps for details router
-                "images": p['images'],
-                "product_name": p['product_name'],
-                "vendor_name": p['vendor_name'],
-                "categories_name": p['categories_name'],
-                "categories_subs_name": p['categories_subs_name'],
-                "brands_name": p['brands_name'],
-                "product_short_description": p['product_short_description'],
-                "product_long_description": p['product_long_description'],
-                "product_price": p['product_price'],
-                "product_discount_price": p['product_discount_price'],
-                "product_status": p['product_status'],
-              };
+              final Map<String, dynamic> itemMap = Map<String, dynamic>.from(p);
+
+              final bool hasVariants = (p['has_variants'] == 1 || p['has_variants'] == '1') &&
+                  p['variants'] != null &&
+                  (p['variants'] as List).isNotEmpty;
+
+              double pPrice = 0.0;
+              double pOriginalPrice = 0.0;
+
+              if (hasVariants) {
+                final firstVar = (p['variants'] as List).first;
+                final double discPrice = double.tryParse(firstVar['product_discount_price']?.toString() ?? '') ?? 0.0;
+                final double regPrice = double.tryParse(firstVar['product_price']?.toString() ?? '') ?? 0.0;
+                if (discPrice > 0 && discPrice < regPrice) {
+                  pPrice = discPrice;
+                  pOriginalPrice = regPrice;
+                } else {
+                  pPrice = discPrice > 0 ? discPrice : regPrice;
+                  pOriginalPrice = (regPrice > pPrice) ? regPrice : 0.0;
+                }
+              } else {
+                final double discPrice = double.tryParse(p['product_discount_price']?.toString() ?? '') ?? 0.0;
+                final double regPrice = double.tryParse(p['product_price']?.toString() ?? '') ?? 0.0;
+                if (discPrice > 0 && discPrice < regPrice) {
+                  pPrice = discPrice;
+                  pOriginalPrice = regPrice;
+                } else {
+                  pPrice = discPrice > 0 ? discPrice : regPrice;
+                  pOriginalPrice = (regPrice > pPrice) ? regPrice : 0.0;
+                }
+              }
+
+              itemMap["id"] = p['id'];
+              itemMap["name"] = p['product_name'] ?? 'Product';
+              itemMap["price"] = pPrice;
+              itemMap["original_price"] = pOriginalPrice;
+              itemMap["desc"] = p['product_short_description'] ?? '';
+              itemMap["image"] = p['categories_name'] ?? '';
+              itemMap["category_id"] = p['product_category_id'];
+              itemMap["subcategory_id"] = p['product_sub_category_id'];
+              itemMap["brand_id"] = p['product_brand_id'];
+              itemMap["product_vendor_id"] = p['product_vendor_id'];
+
+              return itemMap;
             }).toList();
             _isLoadingProducts = false;
           });
@@ -363,6 +419,10 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
         productImg = product['images'][0]['product_images']?.toString();
       }
 
+      final bool hasVars = (product['has_variants'] == 1 || product['has_variants'] == '1') &&
+          product['variants'] != null && (product['variants'] as List).isNotEmpty;
+      final dynamic firstVarId = hasVars ? product['variants'][0]['id'] : null;
+
       setState(() {
         final existingIndex = currentCart.indexWhere((item) => item['id'] == product['id']);
         if (existingIndex != -1) {
@@ -370,8 +430,13 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
         } else {
           currentCart.add({
             "id": product['id'],
+            "variant_id": firstVarId,
+            "order_product_variant_id": firstVarId,
+            "is_variant": hasVars,
             "name": product['name'],
             "price": product['price'],
+            "original_price": product['original_price'],
+            "product_price": product['product_price'],
             "desc": product['desc'],
             "image": product['image'],
             "quantity": 1,
@@ -668,13 +733,36 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
   }
 
   Widget _buildProductCard(Map<String, dynamic> product, ThemeData theme) {
-    // Construct real product network image path
-    final images = product['images'];
-    String imageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/no_image.jpg';
-    if (images != null && images is List && images.isNotEmpty) {
-      final String? filename = images[0]['product_images'];
-      if (filename != null && filename.isNotEmpty) {
-        imageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/product_images/$filename';
+    // Construct real product or variant network image path
+    final bool hasVariants = (product['has_variants'] == 1 || product['has_variants'] == '1') &&
+        product['variants'] != null &&
+        (product['variants'] as List).isNotEmpty;
+
+    String imageUrl = _baseNoImageUrl;
+    if (hasVariants) {
+      final firstVar = (product['variants'] as List).first;
+      final varImages = firstVar['images'];
+      if (varImages != null && varImages is List && varImages.isNotEmpty) {
+        final String? filename = varImages[0]['product_variant_images'];
+        if (filename != null && filename.isNotEmpty) {
+          imageUrl = '$_baseProductVariantImageUrl$filename';
+        }
+      } else {
+        final prodImages = product['images'];
+        if (prodImages != null && prodImages is List && prodImages.isNotEmpty) {
+          final String? filename = prodImages[0]['product_images'];
+          if (filename != null && filename.isNotEmpty) {
+            imageUrl = '$_baseProductImageUrl$filename';
+          }
+        }
+      }
+    } else {
+      final images = product['images'];
+      if (images != null && images is List && images.isNotEmpty) {
+        final String? filename = images[0]['product_images'];
+        if (filename != null && filename.isNotEmpty) {
+          imageUrl = '$_baseProductImageUrl$filename';
+        }
       }
     }
 
@@ -757,12 +845,33 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        "₹${product['price']?.toStringAsFixed(2)}",
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          color: theme.colorScheme.primary,
+                      Expanded(
+                        child: Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 4,
+                          children: [
+                            Text(
+                              "₹${(product['price'] is num ? product['price'] : double.tryParse(product['price']?.toString() ?? '0') ?? 0.0).toStringAsFixed(2)}",
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w900,
+                                color: theme.colorScheme.primary,
+                              ),
+                            ),
+                            if (product['original_price'] != null &&
+                                (product['original_price'] is num ? product['original_price'] : double.tryParse(product['original_price']?.toString() ?? '0') ?? 0.0) >
+                                    (product['price'] is num ? product['price'] : double.tryParse(product['price']?.toString() ?? '0') ?? 0.0)) ...[
+                              Text(
+                                "₹${(product['original_price'] is num ? product['original_price'] : double.tryParse(product['original_price']?.toString() ?? '0') ?? 0.0).toStringAsFixed(2)}",
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textMuted,
+                                  decoration: TextDecoration.lineThrough,
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                       GestureDetector(
