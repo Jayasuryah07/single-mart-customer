@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
@@ -40,6 +41,7 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
   String _baseNoImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/no_image.jpg';
   String _baseProductImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/product_images/';
   String _baseProductVariantImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/product_variant_images/';
+  String _baseBrandImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/brand_images/';
 
   // Default fallback mock list
   final List<Map<String, dynamic>> _fallbackProducts = [
@@ -212,6 +214,7 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
       setState(() {
         _baseNoImageUrl = prefs.getString('base_no_image_url') ?? _baseNoImageUrl;
         _baseProductImageUrl = prefs.getString('base_product_image_url') ?? _baseProductImageUrl;
+        _baseBrandImageUrl = prefs.getString('base_brand_image_url') ?? _baseBrandImageUrl;
       });
     } catch (_) {}
   }
@@ -265,8 +268,23 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
       final response = await ApiService.fetchActiveBrands();
       if (response.statusCode == 200) {
         final Map<String, dynamic> body = json.decode(response.body);
+        final List<dynamic> allBrands = body['data'] ?? [];
+
+        final dynamic imageUrls = body['image_url'];
+        if (imageUrls != null && imageUrls is List) {
+          final prefs = await SharedPreferences.getInstance();
+          for (var item in imageUrls) {
+            final imageFor = item['image_for']?.toString();
+            final url = item['image_url']?.toString();
+            if (imageFor == 'Brand' && url != null) {
+              _baseBrandImageUrl = url;
+              await prefs.setString('base_brand_image_url', url);
+            }
+          }
+        }
+
         setState(() {
-          _brands = body['data'] ?? [];
+          _brands = allBrands;
           _isLoadingBrands = false;
         });
         return;
@@ -276,11 +294,23 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
       debugPrint("Failed to load brands, fallback to local: $e");
       setState(() {
         _brands = [
-          {"id": 2, "brands_name": "Apple"},
-          {"id": 5, "brands_name": "Dell"},
-          {"id": 4, "brands_name": "LG"},
-          {"id": 1, "brands_name": "Samsung"},
-          {"id": 3, "brands_name": "Sony"}
+          {"id": 2, "brands_name": "Apple", "brands_image": null},
+          {"id": 17, "brands_name": "Apple Airpods", "brands_image": "17_B_20260721_154128.png"},
+          {"id": 8, "brands_name": "ASUS", "brands_image": "8_B_20260721_132706.jpg"},
+          {"id": 5, "brands_name": "Dell", "brands_image": "5_B_20260713_155704.jpg"},
+          {"id": 10, "brands_name": "HP", "brands_image": "10_B_20260721_133303.jpg"},
+          {"id": 14, "brands_name": "Levi's", "brands_image": "14_B_20260721_173351.jpg"},
+          {"id": 4, "brands_name": "LG", "brands_image": null},
+          {"id": 9, "brands_name": "Logitech", "brands_image": "9_B_20260721_133159.jpg"},
+          {"id": 11, "brands_name": "Nike", "brands_image": "11_B_20260721_142959.jpg"},
+          {"id": 13, "brands_name": "OnePlus", "brands_image": "13_B_20260721_143128.png"},
+          {"id": 7, "brands_name": "Redmi", "brands_image": "7_B_20260721_131703.jpg"},
+          {"id": 15, "brands_name": "Reebok", "brands_image": "15_B_20260721_150442.jpg"},
+          {"id": 16, "brands_name": "Reebok club C85", "brands_image": "16_B_20260721_150545.jpg"},
+          {"id": 1, "brands_name": "Samsung", "brands_image": null},
+          {"id": 3, "brands_name": "Sony", "brands_image": null},
+          {"id": 12, "brands_name": "Tissot", "brands_image": "12_B_20260721_143102.png"},
+          {"id": 6, "brands_name": "tvbvgg", "brands_image": "6_B_20260715_100417.jpg"}
         ];
         _isLoadingBrands = false;
       });
@@ -576,11 +606,11 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
                             margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                             padding: const EdgeInsets.symmetric(horizontal: 14),
                             decoration: BoxDecoration(
-                              color: isSelected ? Colors.white : Colors.white70,
+                              color: isSelected ? theme.colorScheme.primary : Colors.white,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: isSelected ? theme.colorScheme.secondary : AppColors.border,
-                                width: isSelected ? 2.0 : 1.0,
+                                color: isSelected ? theme.colorScheme.primary : const Color(0xFFE2E8F0),
+                                width: 1.0,
                               ),
                             ),
                             child: Row(
@@ -595,18 +625,23 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
                                     errorBuilder: (context, error, stackTrace) => Container(
                                       width: 22,
                                       height: 22,
-                                      color: theme.colorScheme.secondary.withOpacity(0.1),
-                                      child: const Icon(Icons.category, size: 10),
+                                      color: isSelected ? Colors.white24 : theme.colorScheme.primary.withOpacity(0.08),
+                                      child: Icon(Icons.category_rounded, size: 12, color: isSelected ? Colors.white : theme.colorScheme.primary),
                                     ),
                                   ),
                                 ),
                                 const SizedBox(width: 8),
-                                Text(
-                                  sub['categories_subs_name'] ?? 'Subcategory',
-                                  style: TextStyle(
-                                    color: isSelected ? theme.colorScheme.secondary : AppColors.textSecondary,
-                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                    fontSize: 12,
+                                Container(
+                                  constraints: const BoxConstraints(maxWidth: 100),
+                                  child: Text(
+                                    sub['categories_subs_name'] ?? 'Subcategory',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: isSelected ? Colors.white : AppColors.textSecondary,
+                                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                      fontSize: 12,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -649,28 +684,53 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
                           },
                           child: Container(
                             margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
-                              color: isSelected ? Colors.white : Colors.white70,
+                              color: isSelected ? theme.colorScheme.primary : Colors.white,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: isSelected ? theme.colorScheme.primary : AppColors.border,
-                                width: isSelected ? 2.0 : 1.0,
+                                color: isSelected ? theme.colorScheme.primary : const Color(0xFFE2E8F0),
+                                width: 1.0,
                               ),
                             ),
                             child: Row(
                               children: [
-                                Icon(
-                                  _getBrandIcon(brand['brands_name'] ?? ''),
-                                  color: isSelected ? theme.colorScheme.primary : AppColors.textLight,
-                                  size: 16,
+                                Container(
+                                  width: 22,
+                                  height: 22,
+                                  decoration: BoxDecoration(
+                                    color: isSelected ? Colors.white24 : const Color(0xFFF2F2F4),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: ClipOval(
+                                    child: _getBrandImage(brand['brands_image']).isNotEmpty
+                                        ? Image.network(
+                                            _getBrandImage(brand['brands_image']),
+                                            fit: BoxFit.contain,
+                                            errorBuilder: (context, error, stackTrace) => Icon(
+                                              Icons.star_rounded,
+                                              color: isSelected ? Colors.white : theme.colorScheme.primary,
+                                              size: 12,
+                                            ),
+                                          )
+                                        : Center(
+                                            child: Text(
+                                              (brand['brands_name']?.toString().substring(0, min(1, brand['brands_name']?.toString().length ?? 1)) ?? 'B').toUpperCase(),
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: isSelected ? Colors.white : theme.colorScheme.primary,
+                                              ),
+                                            ),
+                                          ),
+                                  ),
                                 ),
-                                const SizedBox(width: 6),
+                                const SizedBox(width: 8),
                                 Text(
                                   brand['brands_name'] ?? 'Brand',
                                   style: TextStyle(
-                                    color: isSelected ? theme.colorScheme.primary : AppColors.textSecondary,
-                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                    color: isSelected ? Colors.white : AppColors.textSecondary,
+                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                                     fontSize: 12,
                                   ),
                                 ),
@@ -766,6 +826,32 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
       }
     }
 
+    final double price = product['price'] is num 
+        ? (product['price'] as num).toDouble() 
+        : (double.tryParse(product['price']?.toString() ?? '0') ?? 0.0);
+    final double? originalPrice = product['original_price'] is num 
+        ? (product['original_price'] as num).toDouble() 
+        : (double.tryParse(product['original_price']?.toString() ?? '') ?? null);
+
+    final hasDiscount = originalPrice != null && originalPrice > price;
+
+    final String brandName = _getBrandName(product['brand_id']);
+    final String prodName = product['name'] ?? 'Product Name';
+
+    // Fetch review ratings dynamically
+    final List<dynamic> reviewsList = product['review'] is List ? product['review'] : [];
+    double rating = 4.0;
+    int ratingCount = 0;
+    if (reviewsList.isNotEmpty) {
+      double sum = 0.0;
+      for (var r in reviewsList) {
+        final val = double.tryParse(r['product_rating']?.toString() ?? '0') ?? 0.0;
+        sum += val;
+      }
+      rating = sum / reviewsList.length;
+      ratingCount = reviewsList.length;
+    }
+
     return GestureDetector(
       onTap: () {
         Navigator.push(
@@ -778,121 +864,193 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
           _loadCart();
         });
       },
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppColors.border, width: 1.5),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.01),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withOpacity(0.05),
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                ),
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-                  child: Image.network(
-                    imageUrl,
-                    width: double.infinity,
-                    fit: BoxFit.contain,
-                    errorBuilder: (context, error, stackTrace) => Container(
-                      color: theme.colorScheme.primary.withOpacity(0.05),
-                      child: Icon(
-                        _getCategoryIcon(product['image'] ?? ''),
-                        size: 40,
-                        color: theme.colorScheme.primary,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. Image Container with Rating overlay
+          Expanded(
+            child: Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE2E8F0), width: 1.0),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Stack(
+                  children: [
+                    // Product image
+                    Positioned.fill(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child: Image.network(
+                          imageUrl,
+                          fit: BoxFit.contain,
+                          cacheWidth: 300,
+                          cacheHeight: 350,
+                          errorBuilder: (context, error, stackTrace) => Container(
+                            color: theme.colorScheme.primary.withOpacity(0.05),
+                            child: Icon(
+                              _getCategoryIcon(product['image'] ?? ''),
+                              size: 40,
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    product['name'] ?? 'Product Name',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    product['desc'] ?? '',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, color: AppColors.textLight, height: 1.3),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Wrap(
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          spacing: 4,
-                          children: [
-                            Text(
-                              "₹${(product['price'] is num ? product['price'] : double.tryParse(product['price']?.toString() ?? '0') ?? 0.0).toStringAsFixed(2)}",
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w900,
-                                color: theme.colorScheme.primary,
+                    // Rating overlay at bottom left - only show if there is at least 1 review
+                    if (ratingCount > 0)
+                      Positioned(
+                        left: 8,
+                        bottom: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(6),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
                               ),
-                            ),
-                            if (product['original_price'] != null &&
-                                (product['original_price'] is num ? product['original_price'] : double.tryParse(product['original_price']?.toString() ?? '0') ?? 0.0) >
-                                    (product['price'] is num ? product['price'] : double.tryParse(product['price']?.toString() ?? '0') ?? 0.0)) ...[
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
                               Text(
-                                "₹${(product['original_price'] is num ? product['original_price'] : double.tryParse(product['original_price']?.toString() ?? '0') ?? 0.0).toStringAsFixed(2)}",
+                                rating.toStringAsFixed(1),
                                 style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.textMuted,
-                                  decoration: TextDecoration.lineThrough,
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(width: 2),
+                              const Icon(
+                                Icons.star_rounded,
+                                color: Color(0xFF008C45), // Flipkart green star
+                                size: 10,
+                              ),
+                              const SizedBox(width: 2),
+                              Text(
+                                "(${_formatNumber(ratingCount)})",
+                                style: const TextStyle(
+                                  fontSize: 9.0,
+                                  color: AppColors.textLight,
                                 ),
                               ),
                             ],
-                          ],
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () => _addToCart(product),
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.primary,
-                            shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.add_shopping_cart, color: Colors.white, size: 16),
                         ),
                       ),
-                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          
+          // 2. RichText Title (Bold Brand + Regular Name)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+            child: RichText(
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              text: TextSpan(
+                style: const TextStyle(fontSize: 13.0, height: 1.2),
+                children: [
+                  if (brandName.isNotEmpty)
+                    TextSpan(
+                      text: '$brandName ',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  TextSpan(
+                    text: prodName,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textLight,
+                    ),
                   ),
                 ],
               ),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 4),
+
+          // 3. Price Display Row (Slashed Original + Bold Final)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                if (hasDiscount) ...[
+                  Text(
+                    _formatNumber(originalPrice.round()),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textLight,
+                      decoration: TextDecoration.lineThrough,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                Text(
+                  "₹${_formatNumber(price.round())}",
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+        ],
       ),
     );
+  }
+
+  String _getBrandName(dynamic brandId) {
+    if (brandId == null) return '';
+    final id = int.tryParse(brandId.toString());
+    if (id == null) return '';
+    final brand = _brands.firstWhere((b) => b['id'] == id, orElse: () => null);
+    if (brand != null) {
+      return brand['brand_name'] ?? brand['brands_name'] ?? '';
+    }
+    if (id == 1) return 'Samsung';
+    if (id == 2) return 'Apple';
+    if (id == 3) return 'Sony';
+    if (id == 4) return 'LG';
+    if (id == 5) return 'Dell';
+    return '';
+  }
+
+  String _getBrandImage(dynamic brandsImage) {
+    if (brandsImage == null || brandsImage.toString().isEmpty) {
+      return '';
+    }
+    final String pathStr = brandsImage.toString();
+    if (pathStr.startsWith('/tmp') || pathStr.startsWith('/var') || pathStr.contains('/')) {
+      if (!pathStr.contains('brand_images') && (pathStr.startsWith('/') || pathStr.startsWith('\\'))) {
+        return '';
+      }
+    }
+    return '${_baseBrandImageUrl}$pathStr';
+  }
+
+  String _formatNumber(int number) {
+    final str = number.toString();
+    final reg = RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))');
+    return str.replaceAllMapped(reg, (Match m) => "${m[1]},");
   }
 }

@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -31,6 +33,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final Map<int, String> _utrByVendor = {};
   final Map<int, File?> _screenshotFileByVendor = {};
   final Map<int, String> _screenshotBase64ByVendor = {};
+
+  // Track expanded state per merchant
+  final Map<int, bool> _expandedByVendor = {};
   
   bool _isLoadingProfile = true;
   bool _isLoadingVendors = false;
@@ -222,10 +227,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
       setState(() {
         _vendorsData.addAll(loadedData);
+        // Expand the first merchant panel by default
+        if (vendorIds.isNotEmpty) {
+          _expandedByVendor[vendorIds.first] = true;
+        }
         for (var vId in grouped.keys) {
-          _utrByVendor[vId] = '';
-          _screenshotFileByVendor[vId] = null;
-          _screenshotBase64ByVendor[vId] = '';
+          _utrByVendor[vId] = _utrByVendor[vId] ?? '';
+          _screenshotFileByVendor[vId] = _screenshotFileByVendor[vId];
+          _screenshotBase64ByVendor[vId] = _screenshotBase64ByVendor[vId] ?? '';
         }
       });
     } catch (e) {
@@ -543,25 +552,38 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final groupedCart = _groupCartItemsByVendor();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFFAFBFD),
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
         backgroundColor: Colors.white,
-        elevation: 1,
+        elevation: 0,
+        scrolledUnderElevation: 0,
         title: const Text(
           'Checkout',
-          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w900,
+            fontSize: 20,
+            letterSpacing: 0.3,
+          ),
         ),
         iconTheme: const IconThemeData(color: AppColors.textPrimary),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1.0),
+          child: Container(
+            color: AppColors.border,
+            height: 1.0,
+          ),
+        ),
       ),
       body: _isLoadingProfile
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // 1. Reference Details card
-                  _buildSectionHeader('User Details (Reference)'),
+                  _buildSectionHeader('User Details'),
                   const SizedBox(height: 8),
                   Container(
                     width: double.infinity,
@@ -569,33 +591,40 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.person_outline_rounded, color: AppColors.textLight, size: 20),
-                            const SizedBox(width: 10),
-                            Text(
-                              _userData?['name'] ?? 'Guest User',
-                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                            ),
-                          ],
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.01),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
                         ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            const Icon(Icons.phone_iphone_rounded, color: AppColors.textLight, size: 20),
-                            const SizedBox(width: 10),
-                            Text(
-                              _userData?['mobile'] != null && _userData!['mobile'].toString().isNotEmpty
-                                  ? '+91 ${_userData!['mobile']}'
-                                  : 'No Phone Provided',
-                              style: const TextStyle(fontSize: 15, color: AppColors.textLight),
-                            ),
-                          ],
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        const CircleAvatar(
+                          backgroundColor: Color(0xFFF1F5F9),
+                          radius: 20,
+                          child: Icon(Icons.person_rounded, color: AppColors.textLight, size: 20),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _userData?['name'] ?? 'Guest User',
+                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _userData?['mobile'] != null && _userData!['mobile'].toString().isNotEmpty
+                                    ? '+91 ${_userData!['mobile']}'
+                                    : 'No Phone Provided',
+                                style: const TextStyle(fontSize: 13, color: AppColors.textLight, fontWeight: FontWeight.w500),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
@@ -611,11 +640,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         onPressed: _redirectToManageAddress,
                         icon: Icon(
                           _defaultAddress != null ? Icons.edit_location_alt_rounded : Icons.add_location_alt_rounded,
-                          size: 18,
+                          size: 16,
+                          color: theme.colorScheme.primary,
                         ),
                         label: Text(
                           _defaultAddress != null ? 'Change' : 'Add',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
+                          style: TextStyle(fontWeight: FontWeight.w900, color: theme.colorScheme.primary, fontSize: 13),
                         ),
                       ),
                     ],
@@ -627,7 +657,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.border),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.01),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
                     child: _defaultAddress == null
                         ? Column(
@@ -639,12 +676,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               ElevatedButton(
                                 onPressed: _redirectToManageAddress,
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppColors.primary.withOpacity(0.08),
-                                  foregroundColor: AppColors.primary,
+                                  backgroundColor: theme.colorScheme.primary.withOpacity(0.08),
+                                  foregroundColor: theme.colorScheme.primary,
                                   elevation: 0,
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                 ),
-                                child: const Text('Manage Addresses'),
+                                child: const Text('Manage Addresses', style: TextStyle(fontWeight: FontWeight.bold)),
                               ),
                             ],
                           )
@@ -654,31 +691,89 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               Row(
                                 children: [
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                                     decoration: BoxDecoration(
-                                      color: AppColors.primary.withOpacity(0.08),
-                                      borderRadius: BorderRadius.circular(6),
+                                      color: theme.colorScheme.primary.withOpacity(0.08),
+                                      borderRadius: BorderRadius.circular(8),
                                     ),
-                                    child: Text(
-                                      (_defaultAddress!['address_type']?.toString().toUpperCase() ?? 'HOME'),
-                                      style: const TextStyle(color: AppColors.primary, fontSize: 10, fontWeight: FontWeight.w900),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          _defaultAddress!['address_type']?.toString().toLowerCase() == 'home'
+                                              ? Icons.home_rounded
+                                              : (_defaultAddress!['address_type']?.toString().toLowerCase() == 'office' || _defaultAddress!['address_type']?.toString().toLowerCase() == 'work')
+                                                  ? Icons.business_rounded
+                                                  : Icons.location_on_rounded,
+                                          color: theme.colorScheme.primary,
+                                          size: 14,
+                                        ),
+                                        const SizedBox(width: 5),
+                                        Text(
+                                          (_defaultAddress!['address_type']?.toString().toUpperCase() ?? 'HOME'),
+                                          style: TextStyle(color: theme.colorScheme.primary, fontSize: 10, fontWeight: FontWeight.w900),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                   const SizedBox(width: 8),
-                                  const Text('Default Address', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                                  const Text('Default Address', style: TextStyle(color: AppColors.textMuted, fontSize: 12, fontWeight: FontWeight.w700)),
                                 ],
                               ),
-                              const SizedBox(height: 12),
-                              Text(
-                                _formatAddress(_defaultAddress!).replaceAll('"', ''),
-                                style: const TextStyle(fontSize: 15, color: AppColors.textPrimary, height: 1.4, fontWeight: FontWeight.w500),
+                              const SizedBox(height: 16),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Icon(
+                                    Icons.location_on_outlined,
+                                    color: AppColors.textLight,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _defaultAddress!['address_line_1']?.toString().trim() ?? '',
+                                          style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                                        ),
+                                        if (_defaultAddress!['address_line_2'] != null && _defaultAddress!['address_line_2'].toString().trim().isNotEmpty) ...[
+                                          const SizedBox(height: 3),
+                                          Text(
+                                            _defaultAddress!['address_line_2']?.toString().trim() ?? '',
+                                            style: const TextStyle(fontSize: 13.5, color: AppColors.textSecondary, fontWeight: FontWeight.w500),
+                                          ),
+                                        ],
+                                        if (_defaultAddress!['landmark'] != null && _defaultAddress!['landmark'].toString().trim().isNotEmpty) ...[
+                                          const SizedBox(height: 3),
+                                          Text(
+                                            'Landmark: ${_defaultAddress!['landmark']?.toString().trim()}',
+                                            style: const TextStyle(fontSize: 13, color: AppColors.textLight, fontStyle: FontStyle.italic),
+                                          ),
+                                        ],
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          '${_defaultAddress!['city'] ?? ''}, ${_defaultAddress!['district'] ?? ''}, ${_defaultAddress!['state'] ?? ''} - ${_defaultAddress!['pincode'] ?? ''}',
+                                          style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: AppColors.textSecondary),
+                                        ),
+                                        if (_defaultAddress!['country'] != null && _defaultAddress!['country'].toString().trim().isNotEmpty) ...[
+                                          const SizedBox(height: 3),
+                                          Text(
+                                            _defaultAddress!['country']?.toString().trim() ?? '',
+                                            style: const TextStyle(fontSize: 13, color: AppColors.textLight, fontWeight: FontWeight.w500),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
                   ),
                   const SizedBox(height: 24),
 
-                  // 3. Split Payment Cards grouped by Vendor
+                  // 3. Split Payment Cards grouped by Vendor (Expandable Accordion)
                   _buildSectionHeader('Split Payments by Merchant'),
                   const SizedBox(height: 8),
                   _isLoadingVendors
@@ -707,84 +802,47 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                             final hasScreenshot = _screenshotFileByVendor[vendorId] != null;
                             final isPayDetailsComplete = hasUtr && hasScreenshot;
 
+                            final isExpanded = _expandedByVendor[vendorId] ?? false;
+
                             return Container(
-                              margin: const EdgeInsets.only(bottom: 16),
-                              padding: const EdgeInsets.all(16),
+                              margin: const EdgeInsets.only(bottom: 14),
                               decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: AppColors.border),
+                                border: Border.all(
+                                  color: isExpanded ? theme.colorScheme.primary.withOpacity(0.5) : const Color(0xFFE2E8F0),
+                                  width: isExpanded ? 1.5 : 1.0,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.015),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  // Merchant Header
-                                  Row(
-                                    children: [
-                                      const CircleAvatar(
-                                        backgroundColor: AppColors.secondary,
-                                        radius: 16,
-                                        child: Icon(Icons.storefront_rounded, color: AppColors.primary, size: 16),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              merchant?['name'] ?? 'Merchant ($vendorId)',
-                                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                                            ),
-                                            if (merchant?['owner_name'] != null)
-                                              Text(
-                                                'Owner: ${merchant!['owner_name']}',
-                                                style: const TextStyle(fontSize: 11, color: AppColors.textLight),
-                                              ),
-                                          ],
-                                        ),
-                                      ),
-                                      if (merchant?['mobile'] != null)
-                                        Text(
-                                          'Ph: ${merchant!['mobile']}',
-                                          style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
-                                        ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  const Divider(),
-                                  const SizedBox(height: 8),
-
-                                  // Vendor items list
-                                  const Text('Items from this seller:', style: TextStyle(fontSize: 11, color: AppColors.textMuted, fontWeight: FontWeight.bold)),
-                                  const SizedBox(height: 6),
-                                  ...vendorItems.map((item) {
-                                    final String? imgFile = item['product_image']?.toString();
-                                    final String imgUrl = (imgFile != null && imgFile.isNotEmpty)
-                                        ? ((item['is_variant'] == true || item['variant_id'] != null)
-                                            ? '${_baseProductVariantImageUrl}$imgFile'
-                                            : '${_baseProductImageUrl}$imgFile')
-                                        : _baseNoImageUrl;
-
-                                    return Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 6.0),
+                                  // Expandable Accordion Header Tap target
+                                  InkWell(
+                                    onTap: () {
+                                      setState(() {
+                                        _expandedByVendor[vendorId] = !isExpanded;
+                                      });
+                                    },
+                                    borderRadius: BorderRadius.circular(15),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(16),
                                       child: Row(
                                         children: [
-                                          Container(
-                                            width: 40,
-                                            height: 40,
-                                            decoration: BoxDecoration(
-                                              color: AppColors.surface,
-                                              borderRadius: BorderRadius.circular(8),
-                                              border: Border.all(color: AppColors.border),
-                                            ),
-                                            child: ClipRRect(
-                                              borderRadius: BorderRadius.circular(6),
-                                              child: Image.network(
-                                                imgUrl,
-                                                fit: BoxFit.cover,
-                                                errorBuilder: (context, error, stackTrace) =>
-                                                    const Icon(Icons.image_not_supported_rounded, size: 18, color: AppColors.textMuted),
-                                              ),
+                                          CircleAvatar(
+                                            backgroundColor: isExpanded ? theme.colorScheme.primary.withOpacity(0.12) : const Color(0xFFF1F5F9),
+                                            radius: 18,
+                                            child: Icon(
+                                              Icons.storefront_rounded,
+                                              color: isExpanded ? theme.colorScheme.primary : AppColors.textLight,
+                                              size: 18,
                                             ),
                                           ),
                                           const SizedBox(width: 12),
@@ -793,295 +851,451 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                               crossAxisAlignment: CrossAxisAlignment.start,
                                               children: [
                                                 Text(
-                                                  item['name'] ?? 'Product',
+                                                  merchant?['name'] ?? 'Merchant ($vendorId)',
                                                   maxLines: 1,
                                                   overflow: TextOverflow.ellipsis,
-                                                  style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+                                                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                                                 ),
-                                                if (item['variant_attributes'] != null && item['variant_attributes'].toString().isNotEmpty)
-                                                  Text(
-                                                    'Variant: ${item['variant_attributes']}',
-                                                    maxLines: 1,
-                                                    overflow: TextOverflow.ellipsis,
-                                                    style: const TextStyle(fontSize: 11, color: AppColors.textSecondary, fontWeight: FontWeight.w600),
-                                                  ),
                                                 const SizedBox(height: 2),
                                                 Text(
-                                                   'Qty: ${item['quantity']}',
-                                                   style: const TextStyle(fontSize: 11, color: AppColors.textLight),
-                                                 ),
-                                               ],
-                                             ),
-                                           ),
-                                           const SizedBox(width: 12),
-                                           Column(
-                                             crossAxisAlignment: CrossAxisAlignment.end,
-                                             mainAxisAlignment: MainAxisAlignment.center,
-                                             children: [
-                                               Text(
-                                                 '₹${((item['price'] is num ? item['price'] : double.tryParse(item['price']?.toString() ?? '0') ?? 0.0) * (item['quantity'] is num ? item['quantity'] : int.tryParse(item['quantity']?.toString() ?? '1') ?? 1)).toStringAsFixed(2)}',
-                                                 style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                                               ),
-                                               if (_getItemOriginalPrice(item) > (item['price'] is num ? item['price'] : double.tryParse(item['price']?.toString() ?? '0') ?? 0.0)) ...[
-                                                 const SizedBox(height: 2),
-                                                 Text(
-                                                   '₹${(_getItemOriginalPrice(item) * (item['quantity'] is num ? item['quantity'] : int.tryParse(item['quantity']?.toString() ?? '1') ?? 1)).toStringAsFixed(2)}',
-                                                   style: const TextStyle(
-                                                     fontSize: 11,
-                                                     fontWeight: FontWeight.w500,
-                                                     color: AppColors.textMuted,
-                                                     decoration: TextDecoration.lineThrough,
-                                                   ),
-                                                 ),
-                                               ],
-                                             ],
-                                           ),
-                                        ],
-                                      ),
-                                    );
-                                  }).toList(),
-                                  const SizedBox(height: 10),
-                                  
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text('Seller Subtotal', style: TextStyle(fontSize: 13, color: AppColors.textLight, fontWeight: FontWeight.bold)),
-                                      Text(
-                                        '₹${vendorSubtotal.toStringAsFixed(2)}',
-                                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: theme.colorScheme.primary),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  const Divider(),
-
-                                  // Seller Payment UPI and QR
-                                  if (merchant != null) ...[
-                                    const SizedBox(height: 8),
-                                    if (merchant['upi_id'] != null && merchant['upi_id'].toString().trim().isNotEmpty) ...[
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                const Text('UPI ID', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                                                const SizedBox(height: 2),
-                                                Text(
-                                                  merchant['upi_id'],
-                                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                                                  '${vendorItems.length} items  •  ₹${vendorSubtotal.toStringAsFixed(0)}',
+                                                  style: const TextStyle(fontSize: 11.5, color: AppColors.textLight, fontWeight: FontWeight.w600),
                                                 ),
                                               ],
                                             ),
                                           ),
-                                          IconButton(
-                                            icon: const Icon(Icons.copy_rounded, color: AppColors.primary, size: 18),
-                                            padding: EdgeInsets.zero,
-                                            constraints: const BoxConstraints(),
-                                            onPressed: () {
-                                              Clipboard.setData(ClipboardData(text: merchant['upi_id'])).then((_) {
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  const SnackBar(
-                                                    content: Text('UPI ID copied to clipboard!'),
-                                                    duration: Duration(seconds: 1),
-                                                  ),
-                                                );
-                                              });
-                                            },
+                                          const SizedBox(width: 8),
+                                          
+                                          // Status Indicator Badge
+                                          // Container(
+                                          //   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          //   decoration: BoxDecoration(
+                                          //     color: isPayDetailsComplete ? const Color(0xFFE8F5E9) : const Color(0xFFFFF3E0),
+                                          //     borderRadius: BorderRadius.circular(8),
+                                          //   ),
+                                          //   child: Row(
+                                          //     mainAxisSize: MainAxisSize.min,
+                                          //     children: [
+                                          //       Icon(
+                                          //         isPayDetailsComplete ? Icons.check_circle_rounded : Icons.pending_rounded,
+                                          //         color: isPayDetailsComplete ? const Color(0xFF2E7D32) : const Color(0xFFEF6C00),
+                                          //         size: 12,
+                                          //       ),
+                                          //       const SizedBox(width: 4),
+                                          //       Text(
+                                          //         isPayDetailsComplete ? 'Ready' : 'Pending',
+                                          //         style: TextStyle(
+                                          //           fontSize: 10,
+                                          //           fontWeight: FontWeight.w900,
+                                          //           color: isPayDetailsComplete ? const Color(0xFF2E7D32) : const Color(0xFFEF6C00),
+                                          //         ),
+                                          //       ),
+                                          //     ],
+                                          //   ),
+                                          // ),
+                                          const SizedBox(width: 8),
+                                          Icon(
+                                            isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                                            color: AppColors.textMuted,
                                           ),
                                         ],
                                       ),
-                                      const SizedBox(height: 10),
-                                    ],
+                                    ),
+                                  ),
 
-                                    if (merchant['qr_code'] != null && merchant['qr_code'].toString().trim().isNotEmpty) ...[
-                                      const Text('Scan QR Code to Pay:', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                                      const SizedBox(height: 8),
-                                      Center(
-                                        child: GestureDetector(
-                                          onTap: () {
-                                            _showFullQRCode(
-                                              "https://agsdemo.in/singlemartapi/public/assets/images/user_images/${merchant['qr_code']}"
+                                  // Expanded Details Pane
+                                  if (isExpanded) ...[
+                                    Container(
+                                      height: 1.0,
+                                      color: const Color(0xFFF1F5F9),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.all(16),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          // Merchant details
+                                          if (merchant?['owner_name'] != null || merchant?['mobile'] != null) ...[
+                                            Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                if (merchant?['owner_name'] != null)
+                                                  Text(
+                                                    'Owner: ${merchant!['owner_name']}',
+                                                    style: const TextStyle(fontSize: 12, color: AppColors.textLight, fontWeight: FontWeight.w500),
+                                                  ),
+                                                if (merchant?['mobile'] != null)
+                                                  Text(
+                                                    'Ph: +91 ${merchant!['mobile']}',
+                                                    style: const TextStyle(fontSize: 12, color: AppColors.textLight, fontWeight: FontWeight.w500),
+                                                  ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 12),
+                                          ],
+
+                                          // Vendor items list
+                                          const Text('Items list:', style: TextStyle(fontSize: 11.5, color: AppColors.textLight, fontWeight: FontWeight.bold)),
+                                          const SizedBox(height: 6),
+                                          ...vendorItems.map((item) {
+                                            final String? imgFile = item['product_image']?.toString();
+                                            final String imgUrl = (imgFile != null && imgFile.isNotEmpty)
+                                                ? ((item['is_variant'] == true || item['variant_id'] != null)
+                                                    ? '${_baseProductVariantImageUrl}$imgFile'
+                                                    : '${_baseProductImageUrl}$imgFile')
+                                                : _baseNoImageUrl;
+
+                                            final double origP = _getItemOriginalPrice(item);
+                                            final double currentP = (item['price'] is num ? item['price'] : double.tryParse(item['price']?.toString() ?? '0') ?? 0.0);
+
+                                            return Padding(
+                                              padding: const EdgeInsets.symmetric(vertical: 4.0),
+                                              child: Row(
+                                                children: [
+                                                  Container(
+                                                    width: 36,
+                                                    height: 36,
+                                                    decoration: BoxDecoration(
+                                                      color: const Color(0xFFF1F5F9),
+                                                      borderRadius: BorderRadius.circular(8),
+                                                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                                                    ),
+                                                    child: ClipRRect(
+                                                      borderRadius: BorderRadius.circular(7),
+                                                      child: Image.network(
+                                                        imgUrl,
+                                                        fit: BoxFit.contain,
+                                                        errorBuilder: (context, error, stackTrace) =>
+                                                            const Icon(Icons.shopping_bag_outlined, size: 16, color: AppColors.textMuted),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 10),
+                                                  Expanded(
+                                                    child: Column(
+                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                      children: [
+                                                        Text(
+                                                          item['name'] ?? 'Product',
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow.ellipsis,
+                                                          style: const TextStyle(fontSize: 12.5, color: AppColors.textPrimary, fontWeight: FontWeight.bold),
+                                                        ),
+                                                        const SizedBox(height: 2),
+                                                        Text(
+                                                          'Qty: ${item['quantity']}',
+                                                          style: const TextStyle(fontSize: 11, color: AppColors.textLight, fontWeight: FontWeight.w500),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 10),
+                                                  Column(
+                                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                                    mainAxisAlignment: MainAxisAlignment.center,
+                                                    children: [
+                                                      Text(
+                                                        '₹${(currentP * (item['quantity'] as int)).toStringAsFixed(0)}',
+                                                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900, color: AppColors.textPrimary),
+                                                      ),
+                                                      if (origP > currentP) ...[
+                                                        const SizedBox(height: 2),
+                                                        Text(
+                                                          '₹${(origP * (item['quantity'] as int)).toStringAsFixed(0)}',
+                                                          style: const TextStyle(
+                                                            fontSize: 10.5,
+                                                            color: AppColors.textMuted,
+                                                            fontWeight: FontWeight.w500,
+                                                            decoration: TextDecoration.lineThrough,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ],
+                                                  ),
+                                                ],
+                                              ),
                                             );
-                                          },
-                                          child: Stack(
-                                            alignment: Alignment.center,
-                                            children: [
+                                          }).toList(),
+                                          const SizedBox(height: 14),
+
+                                          // Payment credentials (UPI & QR Code)
+                                          if (merchant != null) ...[
+                                            const Text('Transfer Payment details:', style: TextStyle(fontSize: 11.5, color: AppColors.textLight, fontWeight: FontWeight.bold)),
+                                            const SizedBox(height: 10),
+                                            
+                                            // UPI ID
+                                            if (merchant['upi_id'] != null && merchant['upi_id'].toString().trim().isNotEmpty) ...[
                                               Container(
-                                                padding: const EdgeInsets.all(6),
+                                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                                                 decoration: BoxDecoration(
-                                                  border: Border.all(color: AppColors.border),
+                                                  color: const Color(0xFFF8FAFC),
+                                                  borderRadius: BorderRadius.circular(10),
+                                                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                                                ),
+                                                child: Row(
+                                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                  children: [
+                                                    Expanded(
+                                                      child: Column(
+                                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                                        children: [
+                                                          const Text('Merchant UPI ID', style: TextStyle(fontSize: 10, color: AppColors.textMuted, fontWeight: FontWeight.w600)),
+                                                          const SizedBox(height: 2),
+                                                          Text(
+                                                            merchant['upi_id'],
+                                                            maxLines: 1,
+                                                            overflow: TextOverflow.ellipsis,
+                                                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    GestureDetector(
+                                                      onTap: () {
+                                                        Clipboard.setData(ClipboardData(text: merchant['upi_id'])).then((_) {
+                                                          ScaffoldMessenger.of(context).showSnackBar(
+                                                            const SnackBar(
+                                                              content: Text('UPI ID copied!'),
+                                                              duration: Duration(seconds: 1),
+                                                            ),
+                                                          );
+                                                        });
+                                                      },
+                                                      child: Container(
+                                                        padding: const EdgeInsets.all(6),
+                                                        decoration: BoxDecoration(
+                                                          color: theme.colorScheme.primary.withOpacity(0.08),
+                                                          shape: BoxShape.circle,
+                                                        ),
+                                                        child: Icon(Icons.copy_rounded, color: theme.colorScheme.primary, size: 14),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              const SizedBox(height: 12),
+                                            ],
+
+                                            // QR Code Scan Button & Preview
+                                            if (merchant['qr_code'] != null && merchant['qr_code'].toString().trim().isNotEmpty) ...[
+                                              Center(
+                                                child: GestureDetector(
+                                                  onTap: () {
+                                                    _showFullQRCode(
+                                                      "https://agsdemo.in/singlemartapi/public/assets/images/user_images/${merchant['qr_code']}"
+                                                    );
+                                                  },
+                                                  child: Stack(
+                                                    alignment: Alignment.center,
+                                                    children: [
+                                                      Container(
+                                                        padding: const EdgeInsets.all(6),
+                                                        decoration: BoxDecoration(
+                                                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                                                          borderRadius: BorderRadius.circular(12),
+                                                          color: Colors.white,
+                                                        ),
+                                                        child: ClipRRect(
+                                                          borderRadius: BorderRadius.circular(8),
+                                                          child: Image.network(
+                                                            "https://agsdemo.in/singlemartapi/public/assets/images/user_images/${merchant['qr_code']}",
+                                                            width: 90,
+                                                            height: 90,
+                                                            fit: BoxFit.cover,
+                                                            errorBuilder: (context, error, stackTrace) {
+                                                              return Container(
+                                                                width: 90,
+                                                                height: 90,
+                                                                color: const Color(0xFFF1F5F9),
+                                                                child: const Center(
+                                                                  child: Icon(Icons.broken_image_rounded, color: AppColors.textMuted, size: 24),
+                                                                ),
+                                                              );
+                                                            },
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      Positioned(
+                                                        bottom: 4,
+                                                        right: 4,
+                                                        child: Container(
+                                                          padding: const EdgeInsets.all(4),
+                                                          decoration: const BoxDecoration(
+                                                            color: Colors.white,
+                                                            shape: BoxShape.circle,
+                                                            boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 2)],
+                                                          ),
+                                                          child: Icon(Icons.fullscreen_rounded, color: theme.colorScheme.primary, size: 14),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(height: 12),
+                                            ],
+
+                                            // GST or PAN numbers (styled details)
+                                            if ((merchant['gst_number'] != null && merchant['gst_number'].toString().trim().isNotEmpty) ||
+                                                (merchant['pan_number'] != null && merchant['pan_number'].toString().trim().isNotEmpty)) ...[
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(0xFFF8FAFC),
                                                   borderRadius: BorderRadius.circular(10),
                                                 ),
-                                                child: ClipRRect(
-                                                  borderRadius: BorderRadius.circular(6),
-                                                  child: Image.network(
-                                                    "https://agsdemo.in/singlemartapi/public/assets/images/user_images/${merchant['qr_code']}",
-                                                    width: 100,
-                                                    height: 100,
-                                                    fit: BoxFit.cover,
-                                                    errorBuilder: (context, error, stackTrace) {
-                                                      return Container(
-                                                        width: 100,
-                                                        height: 100,
-                                                        color: AppColors.border.withOpacity(0.3),
-                                                        child: const Center(
-                                                          child: Icon(Icons.broken_image, color: AppColors.textMuted, size: 24),
+                                                child: Column(
+                                                  children: [
+                                                    if (merchant['gst_number'] != null && merchant['gst_number'].toString().trim().isNotEmpty)
+                                                      Padding(
+                                                        padding: const EdgeInsets.symmetric(vertical: 4),
+                                                        child: Row(
+                                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                          children: [
+                                                            const Text('GST Number', style: TextStyle(fontSize: 11.5, color: AppColors.textLight, fontWeight: FontWeight.w500)),
+                                                            Text(merchant['gst_number'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textPrimary)),
+                                                          ],
                                                         ),
-                                                      );
-                                                    },
-                                                  ),
+                                                      ),
+                                                    if (merchant['pan_number'] != null && merchant['pan_number'].toString().trim().isNotEmpty)
+                                                      Padding(
+                                                        padding: const EdgeInsets.symmetric(vertical: 4),
+                                                        child: Row(
+                                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                          children: [
+                                                            const Text('PAN Number', style: TextStyle(fontSize: 11.5, color: AppColors.textLight, fontWeight: FontWeight.w500)),
+                                                            Text(merchant['pan_number'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: AppColors.textPrimary)),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                  ],
                                                 ),
                                               ),
-                                              Positioned(
-                                                bottom: 6,
-                                                right: 6,
-                                                child: Container(
-                                                  padding: const EdgeInsets.all(3),
-                                                  decoration: const BoxDecoration(
-                                                    color: Colors.white,
-                                                    shape: BoxShape.circle,
-                                                    boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 2)],
-                                                  ),
-                                                  child: const Icon(Icons.fullscreen_rounded, color: AppColors.primary, size: 14),
-                                                ),
-                                              ),
+                                              const SizedBox(height: 16),
                                             ],
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 10),
-                                    ],
-
-                                    if (merchant['gst_number'] != null && merchant['gst_number'].toString().trim().isNotEmpty) ...[
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(vertical: 4.0),
-                                        child: Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            const Text('GST Number', style: TextStyle(fontSize: 12, color: AppColors.textLight)),
-                                            Text(merchant['gst_number'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                                           ],
-                                        ),
-                                      ),
-                                    ],
 
-                                    if (merchant['pan_number'] != null && merchant['pan_number'].toString().trim().isNotEmpty) ...[
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(vertical: 4.0),
-                                        child: Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            const Text('PAN Number', style: TextStyle(fontSize: 12, color: AppColors.textLight)),
-                                            Text(merchant['pan_number'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                    
-                                    const Divider(),
-                                  ],
+                                          // Payment Verification Inputs
+                                          const Text('Payment Verification:', style: TextStyle(fontSize: 11.5, color: AppColors.textLight, fontWeight: FontWeight.bold)),
+                                          const SizedBox(height: 10),
 
-                                  // UTR and Screenshot Upload Section
-                                  const SizedBox(height: 8),
-                                  const Text(
-                                    'Payment Verification',
-                                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                                  ),
-                                  const SizedBox(height: 10),
-
-                                  // UTR Number Field
-                                  TextFormField(
-                                    initialValue: _utrByVendor[vendorId],
-                                    decoration: InputDecoration(
-                                      labelText: 'Transaction UTR Number',
-                                      labelStyle: const TextStyle(fontSize: 12, color: AppColors.textLight),
-                                      hintText: 'Enter 12-digit UTR/Ref Number',
-                                      prefixIcon: const Icon(Icons.receipt_long_rounded, color: AppColors.primary, size: 20),
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                                    ),
-                                    keyboardType: TextInputType.text,
-                                    onChanged: (val) {
-                                      setState(() {
-                                        _utrByVendor[vendorId] = val;
-                                      });
-                                    },
-                                  ),
-                                  const SizedBox(height: 12),
-
-                                  // Screenshot Picker Button & Preview
-                                  Row(
-                                    children: [
-                                      ElevatedButton.icon(
-                                        onPressed: () => _pickScreenshot(vendorId),
-                                        icon: Icon(
-                                          _screenshotFileByVendor[vendorId] != null ? Icons.change_circle_rounded : Icons.add_photo_alternate_rounded,
-                                          size: 18,
-                                          color: Colors.white,
-                                        ),
-                                        label: Text(
-                                          _screenshotFileByVendor[vendorId] != null ? 'Change Screen' : 'Upload Screenshot',
-                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
-                                        ),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: AppColors.primary,
-                                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 16),
-                                      if (_screenshotFileByVendor[vendorId] != null)
-                                        ClipRRect(
-                                          borderRadius: BorderRadius.circular(8),
-                                          child: Image.file(
-                                            _screenshotFileByVendor[vendorId]!,
-                                            width: 48,
-                                            height: 48,
-                                            fit: BoxFit.cover,
-                                          ),
-                                        )
-                                      else
-                                        const Row(
-                                          children: [
-                                            Icon(Icons.info_outline, color: Colors.orange, size: 16),
-                                            SizedBox(width: 6),
-                                            Text(
-                                              'No screenshot chosen',
-                                              style: TextStyle(fontSize: 11, color: Colors.orange, fontWeight: FontWeight.bold),
+                                          // UTR TextFormField
+                                          TextFormField(
+                                            initialValue: _utrByVendor[vendorId],
+                                            onChanged: (val) {
+                                              setState(() {
+                                                _utrByVendor[vendorId] = val;
+                                              });
+                                            },
+                                            decoration: InputDecoration(
+                                              labelText: 'Transaction UTR / Ref Number',
+                                              labelStyle: const TextStyle(fontSize: 12, color: AppColors.textLight, fontWeight: FontWeight.w500),
+                                              hintText: 'Enter 12-digit payment reference',
+                                              hintStyle: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                                              prefixIcon: Icon(Icons.receipt_long_rounded, color: theme.colorScheme.primary, size: 18),
+                                              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                              fillColor: const Color(0xFFF8FAFC),
+                                              filled: true,
+                                              border: OutlineInputBorder(
+                                                borderRadius: BorderRadius.circular(12),
+                                                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                                              ),
+                                              enabledBorder: OutlineInputBorder(
+                                                borderRadius: BorderRadius.circular(12),
+                                                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                                              ),
+                                              focusedBorder: OutlineInputBorder(
+                                                borderRadius: BorderRadius.circular(12),
+                                                borderSide: BorderSide(color: theme.colorScheme.primary.withOpacity(0.5), width: 1.5),
+                                              ),
                                             ),
-                                          ],
-                                        ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
+                                          ),
+                                          const SizedBox(height: 14),
 
-                                  // Verification indicator
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        isPayDetailsComplete ? Icons.check_circle_rounded : Icons.pending_rounded,
-                                        color: isPayDetailsComplete ? Colors.green : Colors.orange,
-                                        size: 18,
+                                          // Custom Dashed Screenshot Uploader Box
+                                          GestureDetector(
+                                            onTap: () => _pickScreenshot(vendorId),
+                                            child: Container(
+                                              height: 90,
+                                              width: double.infinity,
+                                              child: CustomPaint(
+                                                painter: DashedBorderPainter(
+                                                  color: _screenshotFileByVendor[vendorId] != null ? theme.colorScheme.primary.withOpacity(0.5) : const Color(0xFFCBD5E1),
+                                                ),
+                                                child: ClipRRect(
+                                                  borderRadius: BorderRadius.circular(12),
+                                                  child: _screenshotFileByVendor[vendorId] != null
+                                                      ? Stack(
+                                                          children: [
+                                                            Positioned.fill(
+                                                              child: Image.file(
+                                                                _screenshotFileByVendor[vendorId]!,
+                                                                fit: BoxFit.cover,
+                                                              ),
+                                                            ),
+                                                            // Semi-transparent overlay to clear
+                                                            Positioned(
+                                                              top: 8,
+                                                              right: 8,
+                                                              child: GestureDetector(
+                                                                onTap: () {
+                                                                  setState(() {
+                                                                    _screenshotFileByVendor[vendorId] = null;
+                                                                    _screenshotBase64ByVendor[vendorId] = '';
+                                                                  });
+                                                                },
+                                                                child: Container(
+                                                                  padding: const EdgeInsets.all(4),
+                                                                  decoration: const BoxDecoration(
+                                                                    color: Colors.black54,
+                                                                    shape: BoxShape.circle,
+                                                                  ),
+                                                                  child: const Icon(
+                                                                    Icons.close_rounded,
+                                                                    color: Colors.white,
+                                                                    size: 14,
+                                                                  ),
+                                                                ),
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        )
+                                                      : Center(
+                                                          child: Column(
+                                                            mainAxisAlignment: MainAxisAlignment.center,
+                                                            children: [
+                                                              Icon(
+                                                                Icons.cloud_upload_outlined,
+                                                                color: theme.colorScheme.primary,
+                                                                size: 26,
+                                                              ),
+                                                              const SizedBox(height: 6),
+                                                              const Text(
+                                                                'Upload Transfer Screenshot / Receipt',
+                                                                style: TextStyle(
+                                                                  fontSize: 11.5,
+                                                                  fontWeight: FontWeight.bold,
+                                                                  color: AppColors.textSecondary,
+                                                                ),
+                                                              ),
+                                                            ],
+                                                          ),
+                                                        ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        isPayDetailsComplete ? 'Payment details complete' : 'Details required',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                          color: isPayDetailsComplete ? Colors.green : Colors.orange,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             );
                           },
                         ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
 
                   // 4. Order Remarks text field
                   _buildSectionHeader('Order Remarks (Optional)'),
@@ -1089,18 +1303,24 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   TextField(
                     controller: _remarksController,
                     maxLines: 2,
+                    style: const TextStyle(fontSize: 13.5, color: AppColors.textPrimary),
                     decoration: InputDecoration(
-                      hintText: 'Enter instruction/remarks for the delivery here...',
+                      hintText: 'Enter specific instructions for delivery...',
                       hintStyle: const TextStyle(color: AppColors.textMuted, fontSize: 13),
                       filled: true,
                       fillColor: Colors.white,
+                      contentPadding: const EdgeInsets.all(14),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(color: AppColors.border),
+                        borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(color: AppColors.border),
+                        borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(color: theme.colorScheme.primary.withOpacity(0.5)),
                       ),
                     ),
                   ),
@@ -1114,40 +1334,50 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.border),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.01),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
                     child: Column(
                       children: [
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Items Subtotal', style: TextStyle(color: AppColors.textLight)),
-                            Text('₹${totalAmount.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                            const Text('Items Subtotal', style: TextStyle(color: AppColors.textLight, fontSize: 13.5, fontWeight: FontWeight.w500)),
+                            Text('₹${totalAmount.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: AppColors.textPrimary)),
                           ],
                         ),
-                        const SizedBox(height: 12),
-                        const Row(
+                        const SizedBox(height: 10),
+                        Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('Delivery Charges', style: TextStyle(color: AppColors.textLight)),
-                            Text('FREE', style: TextStyle(color: Colors.green, fontWeight: FontWeight.w900)),
+                            const Text('Delivery Charges', style: TextStyle(color: AppColors.textLight, fontSize: 13.5, fontWeight: FontWeight.w500)),
+                            Text('FREE', style: TextStyle(color: theme.colorScheme.secondary, fontWeight: FontWeight.w900, fontSize: 13.5)),
                           ],
                         ),
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 12.0),
-                          child: Divider(),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12.0),
+                          child: Container(
+                            height: 1.0,
+                            color: const Color(0xFFF1F5F9),
+                          ),
                         ),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             const Text(
                               'Total Amount Payable',
-                              style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary, fontSize: 15),
+                              style: TextStyle(fontWeight: FontWeight.w900, color: AppColors.textPrimary, fontSize: 14.5),
                             ),
                             Text(
-                              '₹${totalAmount.toStringAsFixed(2)}',
+                              '₹${totalAmount.toStringAsFixed(0)}',
                               style: TextStyle(
-                                fontWeight: FontWeight.w900,
+                                  fontWeight: FontWeight.w900,
                                 color: theme.colorScheme.primary,
                                 fontSize: 18,
                               ),
@@ -1164,10 +1394,24 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       bottomNavigationBar: _isLoadingProfile
           ? null
           : Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              decoration: const BoxDecoration(
+              padding: EdgeInsets.only(
+                left: 24,
+                right: 24,
+                top: 16,
+                bottom: MediaQuery.of(context).padding.bottom > 0
+                    ? MediaQuery.of(context).padding.bottom + 12
+                    : 16,
+              ),
+              decoration: BoxDecoration(
                 color: Colors.white,
-                border: Border(top: BorderSide(color: AppColors.border)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.06),
+                    blurRadius: 10,
+                    offset: const Offset(0, -4),
+                  ),
+                ],
+                border: const Border(top: BorderSide(color: AppColors.border)),
               ),
               child: SizedBox(
                 width: double.infinity,
@@ -1176,6 +1420,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   onPressed: (_isSubmittingOrder || !_areAllPaymentsDone() || _defaultAddress == null) ? null : _placeOrder,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: theme.colorScheme.primary,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
                   child: _isSubmittingOrder
@@ -1187,7 +1433,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       : Text(
                           'Place Order',
                           style: TextStyle(
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w900,
                             fontSize: 16,
                             color: (_areAllPaymentsDone() && _defaultAddress != null) ? Colors.white : Colors.white60,
                           ),
@@ -1199,13 +1445,28 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Widget _buildSectionHeader(String title) {
-    return Text(
-      title,
-      style: const TextStyle(
-        fontSize: 14,
-        fontWeight: FontWeight.w900,
-        color: AppColors.textLight,
-        letterSpacing: 0.5,
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Row(
+        children: [
+          Container(
+            width: 3.5,
+            height: 14,
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w900,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1221,4 +1482,51 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
     return 0.0;
   }
+}
+
+// Custom Painter to draw a clean dashed border box for screenshot file uploader
+class DashedBorderPainter extends CustomPainter {
+  final Color color;
+  final double strokeWidth;
+  final double gap;
+
+  DashedBorderPainter({
+    this.color = const Color(0xFFCBD5E1),
+    this.strokeWidth = 1.5,
+    this.gap = 4.0,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Paint paint = Paint()
+      ..color = color
+      ..strokeWidth = strokeWidth
+      ..style = PaintingStyle.stroke;
+
+    final Path path = Path()
+      ..addRRect(RRect.fromRectAndRadius(
+        Rect.fromLTWH(strokeWidth / 2, strokeWidth / 2, size.width - strokeWidth, size.height - strokeWidth),
+        const Radius.circular(12),
+      ));
+
+    final double dashWidth = 5.0;
+    final double dashSpace = gap;
+
+    final Path dashedPath = Path();
+    for (PathMetric metric in path.computeMetrics()) {
+      double distance = 0.0;
+      while (distance < metric.length) {
+        dashedPath.addPath(
+          metric.extractPath(distance, distance + dashWidth),
+          Offset.zero,
+        );
+        distance += dashWidth + dashSpace;
+      }
+    }
+
+    canvas.drawPath(dashedPath, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

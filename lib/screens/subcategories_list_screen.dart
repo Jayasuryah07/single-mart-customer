@@ -116,31 +116,44 @@ class _SubcategoriesListScreenState extends State<SubcategoriesListScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFFAFBFD),
+      backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.white,
-        elevation: 1,
+        elevation: 0,
+        scrolledUnderElevation: 0,
         title: Text(
           widget.categoryName ?? 'All Subcategories',
-          style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold),
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w900,
+            fontSize: 20,
+            letterSpacing: 0.3,
+          ),
         ),
         iconTheme: const IconThemeData(color: AppColors.textPrimary),
         actions: const [
           CartButton(),
           SizedBox(width: 12),
         ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1.0),
+          child: Container(
+            color: AppColors.border,
+            height: 1.0,
+          ),
+        ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : (_subcategories.isEmpty
               ? _buildEmptyState()
               : GridView.builder(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 16,
+                    crossAxisCount: 4,
+                    crossAxisSpacing: 10,
                     mainAxisSpacing: 16,
-                    childAspectRatio: 0.9,
+                    childAspectRatio: 0.72,
                   ),
                   itemCount: _subcategories.length,
                   itemBuilder: (context, index) {
@@ -160,53 +173,52 @@ class _SubcategoriesListScreenState extends State<SubcategoriesListScreen> {
                           ),
                         );
                       },
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: AppColors.border, width: 1.5),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.01),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: ClipRRect(
-                                borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-                                child: Image.network(
-                                  imageUrl,
-                                  width: double.infinity,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return Container(
-                                      color: theme.colorScheme.primary.withOpacity(0.05),
-                                      child: Icon(Icons.broken_image_rounded, color: theme.colorScheme.primary, size: 30),
-                                    );
-                                  },
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: AspectRatio(
+                              aspectRatio: 1.0,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF2F2F4), // Light gray background matching categories
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: AppColors.border, width: 1.0),
+                                ),
+                                child: ClipOval(
+                                  child: Image.network(
+                                    imageUrl,
+                                    fit: BoxFit.cover,
+                                    cacheWidth: 200,
+                                    cacheHeight: 200,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return Container(
+                                        color: theme.colorScheme.primary.withOpacity(0.05),
+                                        child: const Icon(
+                                          Icons.broken_image_rounded,
+                                          color: AppColors.textLight,
+                                          size: 24,
+                                        ),
+                                      );
+                                    },
+                                  ),
                                 ),
                               ),
                             ),
-                            Padding(
-                              padding: const EdgeInsets.all(14),
-                              child: Text(
-                                sub['categories_subs_name'] ?? 'Subcategory',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.textPrimary,
-                                ),
-                              ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            sub['categories_subs_name'] ?? 'Subcategory',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900,
+                              color: AppColors.textPrimary,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     );
                   },
