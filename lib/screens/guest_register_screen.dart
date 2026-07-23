@@ -1,30 +1,35 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:image_picker/image_picker.dart';
 import '../services/api_service.dart';
 import '../theme.dart';
 import 'ecommerce_home_screen.dart';
+import 'checkout_screen.dart';
 
-class UserRegisterScreen extends StatefulWidget {
-  final String? prefilledPhone;
+class GuestRegisterScreen extends StatefulWidget {
+  final String prefilledPhone;
   final String? verifiedOtp;
-  const UserRegisterScreen({super.key, this.prefilledPhone, this.verifiedOtp});
+  final List<Map<String, dynamic>> cartItems;
+
+  const GuestRegisterScreen({
+    super.key,
+    required this.prefilledPhone,
+    this.verifiedOtp,
+    required this.cartItems,
+  });
 
   @override
-  State<UserRegisterScreen> createState() => _UserRegisterScreenState();
+  State<GuestRegisterScreen> createState() => _GuestRegisterScreenState();
 }
 
-class _UserRegisterScreenState extends State<UserRegisterScreen>
+class _GuestRegisterScreenState extends State<GuestRegisterScreen>
     with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _dobController = TextEditingController();
 
   // Address controllers
   final TextEditingController _addressLine1Controller = TextEditingController();
@@ -49,133 +54,6 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
   String? _selectedState;
   bool _isLoadingStates = false;
 
-  String? _selectedGender;
-  File? _imageFile;
-
-  Future<void> _pickImage(ImageSource source) async {
-    try {
-      final picker = ImagePicker();
-      final XFile? pickedFile = await picker.pickImage(
-        source: source,
-        maxWidth: 512,
-        maxHeight: 512,
-        imageQuality: 80,
-      );
-      if (pickedFile != null) {
-        setState(() {
-          _imageFile = File(pickedFile.path);
-        });
-      }
-    } catch (e) {
-      debugPrint('Error picking image: $e');
-    }
-  }
-
-  void _showImagePickerOptions() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return SafeArea(
-          child: Wrap(
-            children: [
-              ListTile(
-                leading: const Icon(Icons.photo_library_outlined),
-                title: const Text('Choose from Gallery'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _pickImage(ImageSource.gallery);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.camera_alt_outlined),
-                title: const Text('Take Photo'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _pickImage(ImageSource.camera);
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _selectDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now().subtract(const Duration(days: 365 * 18)),
-      firstDate: DateTime(1920),
-      lastDate: DateTime.now(),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: AppColors.primary,
-              onPrimary: Colors.white,
-              onSurface: AppColors.textPrimary,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-    if (picked != null) {
-      setState(() {
-        // Format: YYYY-MM-DD
-        _dobController.text =
-            "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
-      });
-    }
-  }
-
-  Widget _buildGenderOption(String gender, IconData icon) {
-    final bool isSelected = _selectedGender == gender;
-    const primaryColor = AppColors.primary;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _selectedGender = gender;
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? primaryColor.withOpacity(0.08)
-              : AppColors.surface,
-          border: Border.all(
-            color: isSelected ? primaryColor : AppColors.border,
-            width: isSelected ? 2 : 1,
-          ),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? primaryColor : const Color(0xFF64748B),
-              size: 18,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              gender,
-              style: TextStyle(
-                color: isSelected ? primaryColor : const Color(0xFF0F172A),
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                fontSize: 13,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   void initState() {
     super.initState();
@@ -188,9 +66,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
     );
     _animationController.forward();
     _loadStatesList();
-    if (widget.prefilledPhone != null) {
-      _phoneController.text = widget.prefilledPhone!;
-    }
+    _phoneController.text = widget.prefilledPhone;
   }
 
   Future<void> _loadStatesList() async {
@@ -225,7 +101,6 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
     _nameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
-    _dobController.dispose();
     _addressLine1Controller.dispose();
     _addressLine2Controller.dispose();
     _landmarkController.dispose();
@@ -239,12 +114,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
     super.dispose();
   }
 
-  Future<void> _registerUser() async {
-    if (_selectedGender == null) {
-      _showSnackBar('Please select your gender', Colors.redAccent,
-          Icons.warning_rounded);
-      return;
-    }
+  Future<void> _submitGuestDetails() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
@@ -261,9 +131,10 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
     final String pincode = _pincodeController.text.trim();
     final String country = _countryController.text.trim();
     final String addressType = _addressTypeController.text.trim();
-    final String dob = _dobController.text.trim();
-    // Gender is already in correct format (Male/Female/Other)
-    final String gender = _selectedGender ?? '';
+
+    // Hiding gender and dob: supply mock values to backend
+    const String gender = 'Other';
+    const String dob = '1990-01-01';
 
     String token = '';
     try {
@@ -288,13 +159,12 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
       request.fields['owner_name'] = name;
       request.fields['mobile'] = mobile;
       request.fields['email'] = email;
-      request.fields['gender'] = gender; // Male/Female/Other
-      request.fields['dob'] = dob; // YYYY-MM-DD format
+      request.fields['gender'] = gender;
+      request.fields['dob'] = dob;
       request.fields['user_type'] = '1';
       request.fields['user_position'] = 'User';
       request.fields['is_verified'] = '1';
       
-      // Set all optional fields to empty string
       request.fields['upi_id'] = '';
       request.fields['qr_code'] = '';
       request.fields['business_document'] = '';
@@ -314,22 +184,11 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
       request.fields['addresses[0][address_type]'] = addressType;
       request.fields['addresses[0][is_default]'] = '1';
 
-      // Add image file if selected
-      if (_imageFile != null && await _imageFile!.exists()) {
-        request.files.add(
-          await http.MultipartFile.fromPath(
-            'user_image',
-            _imageFile!.path,
-          ),
-        );
-      }
-
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
 
-      // Log response for debugging
-      print('Response status: ${response.statusCode}');
-      print('Response body: ${response.body}');
+      print('Guest Reg response status: ${response.statusCode}');
+      print('Guest Reg response body: ${response.body}');
 
       final resData = json.decode(response.body);
 
@@ -337,19 +196,17 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
       if (response.statusCode == 422 || response.statusCode == 500) {
         String errorMessage = resData['message'] ?? '';
         
-        // Check if it's a duplicate mobile number error
         if (errorMessage.contains('Duplicate entry') && 
             (errorMessage.contains('mobile') || errorMessage.contains("'mobile'"))) {
           setState(() => _isLoading = false);
           _showSnackBar(
-            'This phone number is already registered. Please use a different number or login.',
+            'This phone number is already registered. Please go back and login.',
             Colors.orange,
             Icons.warning_rounded,
           );
           return;
         }
         
-        // Check for duplicate email error
         if (errorMessage.contains('Duplicate entry') && 
             (errorMessage.contains('email') || errorMessage.contains("'email'"))) {
           setState(() => _isLoading = false);
@@ -382,10 +239,9 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
         setState(() => _isLoading = false);
         String errorMessage = resData['message'] ?? 'Server error ${response.statusCode}. Please try again.';
         
-        // Extract user-friendly message from SQL error
         if (errorMessage.contains('Duplicate entry') && 
             (errorMessage.contains('mobile') || errorMessage.contains("'mobile'"))) {
-          errorMessage = 'This phone number is already registered. Please use a different number or login.';
+          errorMessage = 'This phone number is already registered. Please login.';
         } else if (errorMessage.contains('Duplicate entry') && 
                    (errorMessage.contains('email') || errorMessage.contains("'email'"))) {
           errorMessage = 'This email address is already registered. Please use a different email.';
@@ -398,43 +254,17 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
         );
       }
     } catch (e) {
-      debugPrint('Registration exception: $e');
+      debugPrint('Guest registration exception: $e');
       setState(() => _isLoading = false);
       _showSnackBar(
-        'Server unreachable. Please check your internet connection.',
+        'Server unreachable. Please check your connection.',
         Colors.redAccent,
         Icons.warning_rounded,
       );
     }
   }
 
-  void _showSnackBar(String message, Color bgColor, IconData icon) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(icon, color: Colors.white, size: 20),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                message,
-                style:
-                    const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: bgColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        duration: const Duration(seconds: 4),
-      ),
-    );
-  }
-
   Future<void> _loginAndNavigate(String phone, String otpPassword) async {
-    setState(() => _isLoading = true);
     try {
       // Step 1: Call checkMobile to generate a valid login OTP/password for this newly registered user
       String activePassword = otpPassword;
@@ -453,7 +283,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
           }
         }
       } catch (checkErr) {
-        debugPrint("Error fetching active OTP during direct login check: $checkErr");
+        debugPrint("Error fetching active OTP during guest direct login check: $checkErr");
       }
 
       // Step 2: Perform the login request using the active OTP/password
@@ -489,12 +319,23 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
             await prefs.setString('user_data', json.encode(userCopy));
 
             if (mounted) {
-              _showSnackBar('Registration and login successful!', Colors.green, Icons.check_circle_rounded);
+              _showSnackBar('Details saved. Continuing to checkout...', Colors.green, Icons.check_circle_rounded);
+              
+              // Clean navigation: Push Home as root of stack, then push Checkout on top of it.
               Navigator.of(context).pushAndRemoveUntil(
                 MaterialPageRoute(
                   builder: (context) => const ECommerceHomeScreen(),
                 ),
                 (route) => false,
+              );
+              
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => CheckoutScreen(
+                    cartItems: widget.cartItems,
+                    token: token,
+                  ),
+                ),
               );
             }
             return;
@@ -503,11 +344,11 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
       }
 
       if (mounted) {
-        _showSnackBar('Registration successful! Please login.', Colors.green, Icons.check_circle_rounded);
+        _showSnackBar('Details saved successfully! Please login to complete checkout.', Colors.green, Icons.check_circle_rounded);
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
     } catch (e) {
-      debugPrint("Direct login error: $e");
+      debugPrint("Guest direct login error: $e");
       if (mounted) {
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
@@ -518,7 +359,29 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
     }
   }
 
-
+  void _showSnackBar(String message, Color bgColor, IconData icon) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(icon, color: Colors.white, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: bgColor,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -538,7 +401,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
-          'Register ',
+          'Checkout Details',
           style: TextStyle(
             color: AppColors.textPrimary,
             fontWeight: FontWeight.bold,
@@ -556,47 +419,6 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Profile Avatar with Image Upload
-                  Center(
-                    child: Stack(
-                      children: [
-                        CircleAvatar(
-                          radius: 54,
-                          backgroundColor: primaryColor.withOpacity(0.08),
-                          backgroundImage:
-                              _imageFile != null ? FileImage(_imageFile!) : null,
-                          child: _imageFile == null
-                              ? Icon(
-                                  Icons.person_rounded,
-                                  size: 48,
-                                  color: primaryColor,
-                                )
-                              : null,
-                        ),
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
-                          child: GestureDetector(
-                            onTap: _showImagePickerOptions,
-                            child: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: primaryColor,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 2),
-                              ),
-                              child: const Icon(
-                                Icons.camera_alt_rounded,
-                                color: Colors.white,
-                                size: 18,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(20),
@@ -613,16 +435,16 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Join SingleMart!',
+                          'Checkout as Guest',
                           style: TextStyle(
-                            fontSize: 26,
+                            fontSize: 22,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFF0F172A),
                           ),
                         ),
                         SizedBox(height: 6),
                         Text(
-                          'Register as a shopper to search products, discover exclusive discounts, and place local store orders.',
+                          'Please provide your name, email, and delivery details to proceed with your payment.',
                           style: TextStyle(
                               fontSize: 14, color: Color(0xFF64748B), height: 1.4),
                         ),
@@ -631,9 +453,9 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
                   ),
                   const SizedBox(height: 28),
 
-                  // Section Title: Personal Info
+                  // Contact Details
                   const Text(
-                    'Personal Information',
+                    'Contact Information',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -642,7 +464,6 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
                   ),
                   const SizedBox(height: 16),
 
-                  // Full Name Field
                   _buildLabel('FULL NAME'),
                   const SizedBox(height: 8),
                   TextFormField(
@@ -657,7 +478,6 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
                   ),
                   const SizedBox(height: 20),
 
-                  // Email Field
                   _buildLabel('EMAIL ADDRESS'),
                   const SizedBox(height: 8),
                   TextFormField(
@@ -681,7 +501,6 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
                   ),
                   const SizedBox(height: 20),
 
-                  // Phone Number Field
                   _buildLabel('PHONE NUMBER'),
                   const SizedBox(height: 8),
                   Row(
@@ -712,60 +531,23 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
                       Expanded(
                         child: TextFormField(
                           controller: _phoneController,
-                          keyboardType: TextInputType.phone,
-                          inputFormatters: [
-                            LengthLimitingTextInputFormatter(10),
-                            FilteringTextInputFormatter.digitsOnly,
-                          ],
-                          validator: (val) =>
-                              val == null || val.trim().length != 10
-                                  ? 'Enter a valid 10-digit number'
-                                  : null,
+                          readOnly: true, // Phone number verified via OTP, keep read-only
                           decoration: _buildInputDecoration(
-                            hint: 'Enter phone number',
+                            hint: 'Phone number',
                             icon: Icons.phone_outlined,
                             activeColor: primaryColor,
+                          ).copyWith(
+                            fillColor: const Color(0xFFF1F5F9), // Grayed out read-only style
                           ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 24),
-
-                  // Gender Selector
-                  _buildLabel('GENDER'),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(child: _buildGenderOption('Male', Icons.male_rounded)),
-                      const SizedBox(width: 12),
-                      Expanded(child: _buildGenderOption('Female', Icons.female_rounded)),
-                      const SizedBox(width: 12),
-                      Expanded(child: _buildGenderOption('Other', Icons.transgender_rounded)),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Date of Birth Selector
-                  _buildLabel('DATE OF BIRTH (DOB)'),
-                  const SizedBox(height: 8),
-                  TextFormField(
-                    controller: _dobController,
-                    readOnly: true,
-                    onTap: () => _selectDate(context),
-                    validator: (val) =>
-                        val == null || val.trim().isEmpty ? 'Please select your Date of Birth' : null,
-                    decoration: _buildInputDecoration(
-                      hint: 'YYYY-MM-DD',
-                      icon: Icons.calendar_today_rounded,
-                      activeColor: primaryColor,
-                    ),
-                  ),
                   const SizedBox(height: 32),
 
-                  // Section Title: Address Info
+                  // Delivery Address
                   const Text(
-                    'Default Shopper Address',
+                    'Delivery Address',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -774,7 +556,6 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
                   ),
                   const SizedBox(height: 16),
 
-                  // Address Line 1
                   _buildLabel('STREET ADDRESS / APARTMENT'),
                   const SizedBox(height: 8),
                   TextFormField(
@@ -789,7 +570,6 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
                   ),
                   const SizedBox(height: 16),
 
-                  // Address Line 2 (Optional)
                   _buildLabel('ADDRESS LINE 2 (OPTIONAL)'),
                   const SizedBox(height: 8),
                   TextFormField(
@@ -802,7 +582,6 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
                   ),
                   const SizedBox(height: 16),
 
-                  // Landmark (Optional)
                   _buildLabel('LANDMARK (OPTIONAL)'),
                   const SizedBox(height: 8),
                   TextFormField(
@@ -815,7 +594,6 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
                   ),
                   const SizedBox(height: 16),
 
-                  // City & District in Row
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -860,7 +638,6 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
                   ),
                   const SizedBox(height: 16),
 
-                  // State & Country
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -932,7 +709,6 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
                   ),
                   const SizedBox(height: 16),
 
-                  // Country & Address Type
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -988,7 +764,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
                   ),
                   const SizedBox(height: 48),
 
-                  // Register Button
+                  // Submit Button
                   Container(
                     width: double.infinity,
                     height: 56,
@@ -1005,7 +781,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
                       ],
                     ),
                     child: ElevatedButton(
-                      onPressed: _isLoading ? null : _registerUser,
+                      onPressed: _isLoading ? null : _submitGuestDetails,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.transparent,
                         foregroundColor: Colors.white,
@@ -1027,7 +803,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen>
                               ),
                             )
                           : const Text(
-                              'Register Shopper',
+                              'Continue to Checkout',
                               style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,

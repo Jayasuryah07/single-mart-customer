@@ -13,9 +13,7 @@ import 'products_list_screen.dart';
 import 'login_screen.dart';
 import 'product_detail_screen.dart';
 import 'filter_screen.dart';
-import 'update_profile_screen.dart';
-import 'manage_address_screen.dart';
-import 'order_history_screen.dart';
+import 'profile_screen.dart';
 
 class ECommerceHomeScreen extends StatefulWidget {
   const ECommerceHomeScreen({super.key});
@@ -54,6 +52,7 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
   // User Auth State
   Map<String, dynamic>? _userData;
   bool _isLoggedIn = false;
+  String? _authToken;
 
   // Local Cart State
   List<Map<String, dynamic>> _cartItems = [];
@@ -260,12 +259,14 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
     if (token != null && token.isNotEmpty && userDataStr != null && userDataStr.isNotEmpty) {
       setState(() {
         _isLoggedIn = true;
+        _authToken = token;
         _userData = json.decode(userDataStr);
       });
       _refreshProfileFromServerSilent();
     } else {
       setState(() {
         _isLoggedIn = false;
+        _authToken = null;
         _userData = null;
       });
     }
@@ -808,11 +809,11 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
               ),
               actions: [
                 if (_isLoggedIn) ...[
-                  IconButton(
-                    icon: const Icon(Icons.sync_rounded, color: AppColors.primary),
-                    tooltip: 'Sync profile details',
-                    onPressed: _refreshProfileFromServer,
-                  ),
+                  // IconButton(
+                  //   icon: const Icon(Icons.sync_rounded, color: AppColors.primary),
+                  //   tooltip: 'Sync profile details',
+                  //   onPressed: _refreshProfileFromServer,
+                  // ),
                   Builder(
                     builder: (ctx) {
                       final String? userImage = _userData?['user_image']?.toString();
@@ -882,7 +883,7 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
         ),
         child: SafeArea(
           child: SizedBox(
-            height: 50,
+            height: 45,
             child: BottomNavigationBar(
               currentIndex: _currentTabIndex,
               onTap: (index) {
@@ -895,8 +896,8 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
               type: BottomNavigationBarType.fixed,
               selectedItemColor: AppColors.primary,
               unselectedItemColor: AppColors.textLight,
-              selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 9.5),
-              unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 9.0),
+              selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10),
+              unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 10),
               iconSize: 18,
               items: [
                 const BottomNavigationBarItem(
@@ -999,341 +1000,13 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> {
   }
 
   Widget _buildProfileTab(ThemeData theme) {
-    if (!_isLoggedIn) {
-      return Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withOpacity(0.08),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.account_circle_outlined,
-                  size: 80,
-                  color: theme.colorScheme.primary,
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Welcome to SingleMart',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Sign in to manage your profile, view orders, and manage your delivery addresses.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.textLight, fontSize: 14, height: 1.4),
-              ),
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const LoginScreen()),
-                    ).then((_) => _loadSession());
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: theme.colorScheme.primary,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    elevation: 2,
-                  ),
-                  child: const Text(
-                    'Sign In',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final String name = _userData?['name'] ?? 'User';
-    final String email = _userData?['email'] ?? 'shopper@singlemart.com';
-    final String mobile = _userData?['mobile'] ?? '';
-    final String? userImage = _userData?['user_image']?.toString();
-    final String imageUrl = (userImage != null && userImage.isNotEmpty)
-        ? "https://agsdemo.in/singlemartapi/public/assets/images/user_images/$userImage"
-        : "";
-
-    return Scaffold(
-      backgroundColor: const Color(0xFFFAFBFD),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        title: const Text(
-          'My Profile',
-          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold),
-        ),
-      ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // Profile Card Header with beautiful gradient
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.all(16),
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [AppColors.primary, AppColors.secondary],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.primary.withOpacity(0.2),
-                    blurRadius: 15,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 3),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 10,
-                        ),
-                      ],
-                    ),
-                    child: CircleAvatar(
-                      radius: 40,
-                      backgroundColor: Colors.white,
-                      backgroundImage: imageUrl.isNotEmpty ? NetworkImage(imageUrl) : null,
-                      child: imageUrl.isEmpty
-                          ? const Icon(Icons.person, size: 45, color: AppColors.primary)
-                          : null,
-                    ),
-                  ),
-                  const SizedBox(width: 20),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          email,
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.9),
-                            fontSize: 14,
-                          ),
-                        ),
-                        if (mobile.isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            '+91 $mobile',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.8),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Profile Options Menu Card
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.border),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.015),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  _buildProfileOption(
-                    icon: Icons.manage_accounts_outlined,
-                    title: 'Update Profile',
-                    subtitle: 'Edit personal details & profile photo',
-                    onTap: () async {
-                      final String? token = (await SharedPreferences.getInstance()).getString('auth_token');
-                      if (token != null && _userData != null && mounted) {
-                        final updated = await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => UpdateProfileScreen(
-                              userData: _userData!,
-                              token: token,
-                            ),
-                          ),
-                        );
-                        if (updated == true) {
-                          _loadSession();
-                        }
-                      }
-                    },
-                  ),
-                  const Divider(height: 1, indent: 56, endIndent: 16, color: AppColors.border),
-                  _buildProfileOption(
-                    icon: Icons.location_on_outlined,
-                    title: 'Manage Addresses',
-                    subtitle: 'Add or edit delivery addresses',
-                    onTap: () async {
-                      final String? token = (await SharedPreferences.getInstance()).getString('auth_token');
-                      if (token != null && _userData != null && mounted) {
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => ManageAddressScreen(
-                              userData: _userData!,
-                              token: token,
-                            ),
-                          ),
-                        );
-                        _loadSession();
-                      }
-                    },
-                  ),
-                  const Divider(height: 1, indent: 56, endIndent: 16, color: AppColors.border),
-                  _buildProfileOption(
-                    icon: Icons.receipt_long_outlined,
-                    title: 'Order History',
-                    subtitle: 'View your purchase history & status',
-                    onTap: () async {
-                      final String? token = (await SharedPreferences.getInstance()).getString('auth_token');
-                      if (token != null && mounted) {
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => OrderHistoryScreen(
-                              token: token,
-                            ),
-                          ),
-                        );
-                      }
-                    },
-                  ),
-                  const Divider(height: 1, indent: 56, endIndent: 16, color: AppColors.border),
-                  _buildProfileOption(
-                    icon: Icons.sync_rounded,
-                    title: 'Refresh Profile Details',
-                    subtitle: 'Sync profile details with the server',
-                    onTap: _refreshProfileFromServer,
-                  ),
-                ],
-              ),
-            ),
-
-            // Logout Action Button
-            Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: TextButton.icon(
-                  onPressed: _showLogoutConfirmDialog,
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.error,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      side: const BorderSide(color: AppColors.error, width: 1.5),
-                    ),
-                  ),
-                  icon: const Icon(Icons.logout_rounded),
-                  label: const Text(
-                    'Log Out',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProfileOption({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    return ListTile(
-      leading: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: AppColors.primary.withOpacity(0.08),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, color: AppColors.primary, size: 22),
-      ),
-      title: Text(
-        title,
-        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
-      ),
-      subtitle: Text(
-        subtitle,
-        style: const TextStyle(fontSize: 12, color: AppColors.textLight),
-      ),
-      trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textLight),
-      onTap: onTap,
-    );
-  }
-
-  void _showLogoutConfirmDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Log Out', style: TextStyle(fontWeight: FontWeight.bold)),
-        content: const Text('Are you sure you want to log out of SingleMart?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: AppColors.textLight)),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _logout();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.error,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            child: const Text('Log Out', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
+    return ProfileScreen(
+      isLoggedIn: _isLoggedIn,
+      userData: _userData,
+      token: _authToken,
+      onLogout: _logout,
+      onLoginSuccess: _loadSession,
+      onRefreshProfile: _refreshProfileFromServer,
     );
   }
 

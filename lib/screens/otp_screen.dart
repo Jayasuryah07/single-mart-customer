@@ -9,17 +9,24 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../theme.dart';
 import 'ecommerce_home_screen.dart';
+import 'user_register_screen.dart';
+import 'guest_register_screen.dart';
+import 'checkout_screen.dart';
 
 class OTPScreen extends StatefulWidget {
   final String phoneNumber;
   final String verificationId;
   final String apiOtp;
+  final bool isGuestMode;
+  final List<Map<String, dynamic>>? cartItems;
 
   const OTPScreen({
     super.key,
     required this.phoneNumber,
     required this.verificationId,
     required this.apiOtp,
+    this.isGuestMode = false,
+    this.cartItems,
   });
 
   @override
@@ -201,6 +208,9 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
         password: apiPassword,
       );
 
+      bool isNotRegistered = false;
+      String errorMessage = 'Login failed.';
+
       if (response.statusCode == 200 || response.statusCode == 201) {
         final resData = json.decode(response.body);
         final int code = resData['code'] is int
@@ -213,7 +223,6 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
             final String token = loginData['token']?.toString() ?? '';
             final Map<String, dynamic> user = loginData['user'];
 
-            // Role Verification - Reject if user_type is not 1 (e.g. 2 = Vendor, 3 = Admin)
             final int userType = user['user_type'] is int
                 ? user['user_type']
                 : int.tryParse(user['user_type']?.toString() ?? '1') ?? 1;
@@ -228,7 +237,6 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
               return;
             }
 
-            // Store session locally
             try {
               final prefs = await SharedPreferences.getInstance();
               await prefs.setString('auth_token', token);
@@ -246,16 +254,87 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
             }
 
             setState(() => _isLoading = false);
-            _showSuccessDialog(user, token);
+            if (widget.isGuestMode && widget.cartItems != null) {
+              _showSnackBar('Login successful. Continuing to checkout...', Colors.green, Icons.check_circle_rounded);
+              
+              // Push ECommerceHomeScreen as root, then CheckoutScreen on top
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(
+                  builder: (context) => const ECommerceHomeScreen(),
+                ),
+                (route) => false,
+              );
+              
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => CheckoutScreen(
+                    cartItems: widget.cartItems!,
+                    token: token,
+                  ),
+                ),
+              );
+            } else {
+              _showSuccessDialog(user, token);
+            }
             return;
+          } else {
+            isNotRegistered = true;
           }
+        } else {
+          isNotRegistered = true;
         }
-        
+      } else {
+        isNotRegistered = true;
+      }
+
+      if (isNotRegistered) {
         setState(() => _isLoading = false);
-        _showSnackBar(resData['message'] ?? 'Login verification failed.', AppColors.error, Icons.warning_rounded);
+        
+        if (widget.isGuestMode && widget.cartItems != null) {
+          _showSnackBar(
+            'Redirecting to checkout details...',
+            AppColors.secondary,
+            Icons.person_add_rounded,
+          );
+          
+          Future.delayed(const Duration(seconds: 1), () {
+            if (mounted) {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => GuestRegisterScreen(
+                    prefilledPhone: widget.phoneNumber,
+                    verifiedOtp: apiPassword,
+                    cartItems: widget.cartItems!,
+                  ),
+                ),
+              );
+            }
+          });
+        } else {
+          _showSnackBar(
+            'Phone number not registered. Redirecting to setup...',
+            AppColors.secondary,
+            Icons.person_add_rounded,
+          );
+          
+          Future.delayed(const Duration(seconds: 1), () {
+            if (mounted) {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => UserRegisterScreen(
+                    prefilledPhone: widget.phoneNumber,
+                    verifiedOtp: apiPassword,
+                  ),
+                ),
+              );
+            }
+          });
+        }
       } else {
         setState(() => _isLoading = false);
-        _showSnackBar('Login server error.', AppColors.error, Icons.warning_rounded);
+        _showSnackBar(errorMessage, AppColors.error, Icons.warning_rounded);
       }
     } catch (e) {
       debugPrint('Error submitting login details: $e');

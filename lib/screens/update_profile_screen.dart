@@ -27,7 +27,6 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
   File? _imageFile;
 
   late TextEditingController _nameController;
-  late TextEditingController _ownerNameController;
   late TextEditingController _mobileController;
   late TextEditingController _emailController;
   late TextEditingController _dobController;
@@ -43,7 +42,6 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
     _loadBaseUrls();
     _currentUserData = Map.from(widget.userData);
     _nameController = TextEditingController(text: _currentUserData['name']?.toString() ?? '');
-    _ownerNameController = TextEditingController(text: _currentUserData['owner_name']?.toString() ?? '');
     _mobileController = TextEditingController(text: _currentUserData['mobile']?.toString() ?? '');
     _emailController = TextEditingController(text: _currentUserData['email']?.toString() ?? '');
     _dobController = TextEditingController(text: _currentUserData['dob']?.toString() ?? '');
@@ -72,7 +70,6 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
   @override
   void dispose() {
     _nameController.dispose();
-    _ownerNameController.dispose();
     _mobileController.dispose();
     _emailController.dispose();
     _dobController.dispose();
@@ -96,7 +93,6 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
           setState(() {
             _currentUserData = parsedProfile;
             _nameController.text = _currentUserData['name']?.toString() ?? '';
-            _ownerNameController.text = _currentUserData['owner_name']?.toString() ?? '';
             _mobileController.text = _currentUserData['mobile']?.toString() ?? '';
             _emailController.text = _currentUserData['email']?.toString() ?? '';
             _dobController.text = _currentUserData['dob']?.toString() ?? '';
@@ -214,7 +210,7 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
         // Prepare Multipart payload
         final Map<String, String> fields = {
           "name": _nameController.text.trim(),
-          "owner_name": _ownerNameController.text.trim(),
+          "owner_name": _nameController.text.trim(),
           "mobile": _mobileController.text.trim(),
           "email": _emailController.text.trim(),
           "gender": _selectedGender,
@@ -273,7 +269,7 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
           
           final Map<String, dynamic> localUserData = Map.from(_currentUserData);
           localUserData['name'] = fields['name'];
-          localUserData['owner_name'] = fields['owner_name'];
+          localUserData['owner_name'] = fields['name'];
           localUserData['mobile'] = fields['mobile'];
           localUserData['email'] = fields['email'];
           localUserData['gender'] = fields['gender'];
@@ -311,7 +307,7 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
         // Standard JSON PUT request if no image is updated
         final Map<String, dynamic> body = {
           "name": _nameController.text.trim(),
-          "owner_name": _ownerNameController.text.trim(),
+          "owner_name": _nameController.text.trim(),
           "mobile": _mobileController.text.trim(),
           "email": _emailController.text.trim(),
           "gender": _selectedGender,
@@ -337,7 +333,7 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
           
           final Map<String, dynamic> localUserData = Map.from(_currentUserData);
           localUserData['name'] = body['name'];
-          localUserData['owner_name'] = body['owner_name'];
+          localUserData['owner_name'] = body['name'];
           localUserData['mobile'] = body['mobile'];
           localUserData['email'] = body['email'];
           localUserData['gender'] = body['gender'];
@@ -403,6 +399,8 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
     final theme = Theme.of(context);
     const LinearGradient gradient = LinearGradient(
       colors: [AppColors.primary, AppColors.secondary],
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
     );
 
     final String? serverImage = _currentUserData['user_image']?.toString();
@@ -411,168 +409,215 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
         : "";
 
     return Scaffold(
-      backgroundColor: const Color(0xFFFAFBFD),
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
         backgroundColor: Colors.white,
-        elevation: 1,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: AppColors.textPrimary, size: 20),
+          onPressed: () => Navigator.pop(context),
+        ),
         title: const Text(
-          'Update Profile',
-          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold),
+          'Edit Profile',
+          style: TextStyle(
+            color: AppColors.textPrimary, 
+            fontWeight: FontWeight.w900,
+            fontSize: 20,
+          ),
         ),
         iconTheme: const IconThemeData(color: AppColors.textPrimary),
       ),
       body: SafeArea(
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : SingleChildScrollView(
-                padding: const EdgeInsets.all(24.0),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Profile Avatar with Image Upload
-                      Center(
-                        child: Stack(
-                          children: [
-                            CircleAvatar(
-                              radius: 54,
-                              backgroundColor: AppColors.primary.withOpacity(0.08),
-                              backgroundImage: _imageFile != null
-                                  ? FileImage(_imageFile!)
-                                  : (imageUrl.isNotEmpty ? NetworkImage(imageUrl) as ImageProvider : null),
-                              child: (_imageFile == null && imageUrl.isEmpty)
-                                  ? const Icon(
-                                      Icons.person_rounded,
-                                      size: 48,
-                                      color: AppColors.primary,
-                                    )
-                                  : null,
+        child: Stack(
+          children: [
+            SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Premium Dynamic Profile Avatar Picker
+                    Center(
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          Container(
+                            width: 120,
+                            height: 120,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: gradient,
                             ),
-                            Positioned(
-                              bottom: 0,
-                              right: 0,
-                              child: GestureDetector(
-                                onTap: _showImagePickerOptions,
-                                child: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
+                          ),
+                          Container(
+                            width: 114,
+                            height: 114,
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white,
+                            ),
+                          ),
+                          CircleAvatar(
+                            radius: 52,
+                            backgroundColor: AppColors.primary.withOpacity(0.05),
+                            backgroundImage: _imageFile != null
+                                ? FileImage(_imageFile!)
+                                : (imageUrl.isNotEmpty ? NetworkImage(imageUrl) as ImageProvider : null),
+                            child: (_imageFile == null && imageUrl.isEmpty)
+                                ? const Icon(
+                                    Icons.person_rounded,
+                                    size: 54,
                                     color: AppColors.primary,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: Colors.white, width: 2),
-                                  ),
-                                  child: const Icon(
-                                    Icons.camera_alt_rounded,
-                                    color: Colors.white,
-                                    size: 18,
-                                  ),
+                                  )
+                                : null,
+                          ),
+                          Positioned(
+                            bottom: 2,
+                            right: 2,
+                            child: GestureDetector(
+                              onTap: _showImagePickerOptions,
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: Colors.white, width: 2.5),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: AppColors.primary.withOpacity(0.3),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 3),
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.camera_alt_rounded,
+                                  color: Colors.white,
+                                  size: 16,
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-
-                      const Text(
-                        'Edit Profile Information',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // User Name Field
-                      TextFormField(
-                        controller: _nameController,
-                        decoration: _buildInputDecoration('Name', Icons.person_outline_rounded, theme),
-                        validator: (value) => value == null || value.trim().isEmpty ? 'Enter name' : null,
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Owner Name Field
-                      TextFormField(
-                        controller: _ownerNameController,
-                        decoration: _buildInputDecoration('Owner Name', Icons.person_rounded, theme),
-                        validator: (value) => value == null || value.trim().isEmpty ? 'Enter owner name' : null,
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Mobile Field
-                      TextFormField(
-                        controller: _mobileController,
-                        keyboardType: TextInputType.phone,
-                        decoration: _buildInputDecoration('Mobile Number', Icons.phone_iphone_rounded, theme),
-                        validator: (value) => value == null || value.trim().length != 10 ? 'Enter valid 10-digit number' : null,
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Email Field
-                      TextFormField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        decoration: _buildInputDecoration('Email Address', Icons.email_rounded, theme),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) return 'Enter email address';
-                          if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value.trim())) return 'Enter valid email';
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Gender Dropdown Row
-                      DropdownButtonFormField<String>(
-                        value: _selectedGender,
-                        items: _genders.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
-                        onChanged: (val) {
-                          if (val != null) {
-                            setState(() => _selectedGender = val);
-                          }
-                        },
-                        decoration: _buildInputDecoration('Gender', Icons.wc_rounded, theme),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // DOB Picker Field
-                      TextFormField(
-                        controller: _dobController,
-                        readOnly: true,
-                        onTap: _selectDate,
-                        decoration: _buildInputDecoration('Date of Birth', Icons.calendar_today_rounded, theme),
-                        validator: (value) => value == null || value.isEmpty ? 'Select date of birth' : null,
-                      ),
-                      const SizedBox(height: 32),
-
-                      // Submit Button
-                      Container(
-                        width: double.infinity,
-                        height: 50,
-                        decoration: BoxDecoration(
-                          gradient: gradient,
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.primary.withOpacity(0.3),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: ElevatedButton(
-                          onPressed: _saveProfile,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.transparent,
-                            shadowColor: Colors.transparent,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
-                          child: const Text(
-                            'Save Changes',
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 36),
+
+                    const Text(
+                      'Personal Information',
+                      style: TextStyle(
+                        fontSize: 16, 
+                        fontWeight: FontWeight.w900, 
+                        color: AppColors.textPrimary,
+                        letterSpacing: 0.1,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // User Name Field
+                    TextFormField(
+                      controller: _nameController,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                      decoration: _buildInputDecoration('Name', Icons.person_outline_rounded, theme),
+                      validator: (value) => value == null || value.trim().isEmpty ? 'Enter name' : null,
+                    ),
+                    const SizedBox(height: 18),
+
+                    // Mobile Field (Read-only / Locked)
+                    TextFormField(
+                      controller: _mobileController,
+                      readOnly: true,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textSecondary),
+                      decoration: _buildInputDecoration('Mobile Number', Icons.lock_outline_rounded, theme).copyWith(
+                        fillColor: const Color(0xFFF1F5F9), // Visually locked grey background
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+
+                    // Email Field
+                    TextFormField(
+                      controller: _emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                      decoration: _buildInputDecoration('Email Address', Icons.mail_outline_rounded, theme),
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) return 'Enter email address';
+                        if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value.trim())) return 'Enter valid email';
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 18),
+
+                    // Gender Dropdown Row
+                    DropdownButtonFormField<String>(
+                      value: _selectedGender,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
+                      items: _genders.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() => _selectedGender = val);
+                        }
+                      },
+                      decoration: _buildInputDecoration('Gender', Icons.wc_rounded, theme),
+                    ),
+                    const SizedBox(height: 18),
+
+                    // DOB Picker Field
+                    TextFormField(
+                      controller: _dobController,
+                      readOnly: true,
+                      onTap: _selectDate,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                      decoration: _buildInputDecoration('Date of Birth', Icons.calendar_today_rounded, theme),
+                      validator: (value) => value == null || value.isEmpty ? 'Select date of birth' : null,
+                    ),
+                    const SizedBox(height: 40),
+
+                    // Submit Button
+                    Container(
+                      width: double.infinity,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        gradient: gradient,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.primary.withOpacity(0.3),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
                           ),
+                        ],
+                      ),
+                      child: ElevatedButton(
+                        onPressed: _isLoading ? null : _saveProfile,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.transparent,
+                          shadowColor: Colors.transparent,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        ),
+                        child: const Text(
+                          'Save Changes',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
                 ),
               ),
+            ),
+            if (_isLoading)
+              Container(
+                color: Colors.white.withOpacity(0.45),
+                child: const Center(
+                  child: CircularProgressIndicator(color: AppColors.primary),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -580,20 +625,31 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
   InputDecoration _buildInputDecoration(String label, IconData icon, ThemeData theme) {
     return InputDecoration(
       labelText: label,
-      prefixIcon: Icon(icon, color: AppColors.textLight),
+      labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppColors.textLight),
+      floatingLabelStyle: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary),
+      prefixIcon: Icon(icon, color: AppColors.textLight, size: 20),
       filled: true,
       fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppColors.border),
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppColors.border),
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: theme.colorScheme.primary, width: 2),
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: AppColors.primary, width: 1.8),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: AppColors.error, width: 1.2),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: AppColors.error, width: 1.8),
       ),
     );
   }
