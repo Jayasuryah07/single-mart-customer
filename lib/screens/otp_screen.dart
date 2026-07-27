@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
@@ -12,11 +13,16 @@ import 'ecommerce_home_screen.dart';
 import 'user_register_screen.dart';
 import 'guest_register_screen.dart';
 import 'checkout_screen.dart';
+import '../widgets/cart_button.dart';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class OTPScreen extends StatefulWidget {
   final String phoneNumber;
   final String verificationId;
-  final String apiOtp;
+  final ConfirmationResult? confirmationResult;
+  final bool isNotRegistered;
+  final String apiPassword;
   final bool isGuestMode;
   final List<Map<String, dynamic>>? cartItems;
 
@@ -24,7 +30,9 @@ class OTPScreen extends StatefulWidget {
     super.key,
     required this.phoneNumber,
     required this.verificationId,
-    required this.apiOtp,
+    this.confirmationResult,
+    this.isNotRegistered = false,
+    required this.apiPassword,
     this.isGuestMode = false,
     this.cartItems,
   });
@@ -97,58 +105,36 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
     setState(() => _isLoading = true);
 
     try {
-      // 1. Trigger backend check-mobile to generate OTP
-      final response = await ApiService.checkMobile(widget.phoneNumber);
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        final resData = json.decode(response.body);
-        final int code = resData['code'] is int 
-            ? resData['code'] 
-            : int.tryParse(resData['code']?.toString() ?? '200') ?? 200;
-
-        if (code == 200) {
-          final newApiOtp = resData['data']?.toString() ?? '';
-          _showSnackBar('OTP resent! (For Demo: $newApiOtp)', AppColors.secondary, Icons.check_circle_rounded);
-
-          // 2. Trigger Firebase Phone Verification again
-          await FirebaseAuth.instance.verifyPhoneNumber(
-            phoneNumber: '+91${widget.phoneNumber}',
-            verificationCompleted: (PhoneAuthCredential credential) async {
-              setState(() => _isLoading = true);
-              try {
-                await FirebaseAuth.instance.signInWithCredential(credential);
-                _completeLoginSession(newApiOtp);
-              } catch (e) {
-                debugPrint('Auto sign in failed: $e');
-                setState(() => _isLoading = false);
-              }
-            },
-            verificationFailed: (FirebaseAuthException e) {
-              debugPrint('Resend verification failed: ${e.message}');
-              setState(() => _isLoading = false);
-              _showSnackBar('Firebase Resend failed: ${e.message}', AppColors.error, Icons.error_outline_rounded);
-            },
-            codeSent: (String verId, int? resendToken) {
-              setState(() {
-                _currentVerificationId = verId;
-                _isLoading = false;
-              });
-              _startTimer();
-            },
-            codeAutoRetrievalTimeout: (String verId) {
-              setState(() {
-                _currentVerificationId = verId;
-              });
-            },
-          );
-        } else {
+      await FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: '+91${widget.phoneNumber}',
+        verificationCompleted: (PhoneAuthCredential credential) async {
+          setState(() => _isLoading = true);
+          try {
+            await FirebaseAuth.instance.signInWithCredential(credential);
+            await _completeLoginSession();
+          } catch (e) {
+            debugPrint('Auto sign in failed: $e');
+            setState(() => _isLoading = false);
+          }
+        },
+        verificationFailed: (FirebaseAuthException e) {
+          debugPrint('Resend verification failed: ${e.message}');
           setState(() => _isLoading = false);
-          _showSnackBar(resData['message'] ?? 'Failed to resend code.', AppColors.error, Icons.warning_rounded);
-        }
-      } else {
-        setState(() => _isLoading = false);
-        _showSnackBar('Server connection error.', AppColors.error, Icons.warning_rounded);
-      }
+          _showSnackBar('Firebase Resend failed: ${e.message}', AppColors.error, Icons.error_outline_rounded);
+        },
+        codeSent: (String verId, int? resendToken) {
+          setState(() {
+            _currentVerificationId = verId;
+            _isLoading = false;
+          });
+          _startTimer();
+        },
+        codeAutoRetrievalTimeout: (String verId) {
+          setState(() {
+            _currentVerificationId = verId;
+          });
+        },
+      );
     } catch (e) {
       debugPrint('Error resending OTP: $e');
       setState(() => _isLoading = false);
@@ -157,59 +143,127 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
   }
 
   Future<void> _verifyCode() async {
-    final otpCode = _controllers.map((c) => c.text).join();
+    final otpCode = _controllers.map((e) => e.text).join();
+
     if (otpCode.length != 6) {
-      _showSnackBar('Please enter all 6 digits of the OTP', AppColors.error, Icons.warning_rounded);
+      _showSnackBar(
+        "Enter 6 digit OTP",
+        AppColors.error,
+        Icons.error,
+      );
       return;
     }
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+    });
 
-    bool verified = false;
-
-    // 1. Try manual Firebase verification
-    if (_currentVerificationId.isNotEmpty) {
-      try {
+    try {
+      if (kIsWeb && widget.confirmationResult != null) {
+        await widget.confirmationResult!.confirm(otpCode);
+      } else {
         final credential = PhoneAuthProvider.credential(
           verificationId: _currentVerificationId,
           smsCode: otpCode,
         );
         await FirebaseAuth.instance.signInWithCredential(credential);
-        verified = true;
-      } catch (e) {
-        debugPrint('Firebase SMS verification error: $e');
       }
-    }
-
-    // 2. Resilient fallback check: Compare against backend check-mobile API returned OTP
-    if (!verified && widget.apiOtp.isNotEmpty && otpCode == widget.apiOtp) {
-      verified = true;
-    }
-
-    if (verified) {
-      await _completeLoginSession(widget.apiOtp);
-    } else {
-      setState(() => _isLoading = false);
-      _showSnackBar('Invalid OTP. Please check and try again.', AppColors.error, Icons.warning_rounded);
+      if (widget.isNotRegistered) {
+        setState(() => _isLoading = false);
+        if (widget.isGuestMode && widget.cartItems != null) {
+          _showSnackBar(
+            'Redirecting to checkout details...',
+            AppColors.secondary,
+            Icons.person_add_rounded,
+          );
+          Future.delayed(const Duration(seconds: 1), () {
+            if (mounted) {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => GuestRegisterScreen(
+                    prefilledPhone: widget.phoneNumber,
+                    verifiedOtp: widget.apiPassword,
+                    cartItems: widget.cartItems!,
+                  ),
+                ),
+              );
+            }
+          });
+        } else {
+          _showSnackBar(
+            'Phone number not registered. Redirecting to setup...',
+            AppColors.secondary,
+            Icons.person_add_rounded,
+          );
+          Future.delayed(const Duration(seconds: 1), () {
+            if (mounted) {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => UserRegisterScreen(
+                    prefilledPhone: widget.phoneNumber,
+                    verifiedOtp: widget.apiPassword,
+                  ),
+                ),
+              );
+            }
+          });
+        }
+      } else {
+        await _completeLoginSession();
+      }
+    } on FirebaseAuthException catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      _showSnackBar(
+        e.message ?? "Invalid OTP",
+        AppColors.error,
+        Icons.error,
+      );
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      _showSnackBar(
+        e.toString(),
+        AppColors.error,
+        Icons.error,
+      );
     }
   }
 
   Future<String> _getDeviceId() async {
-    return await ApiService.getOrCreateDeviceId();
+    try {
+      final String? token = await FirebaseMessaging.instance.getToken().timeout(
+        const Duration(seconds: 2),
+      );
+      print("================================");
+      print("FCM TOKEN: $token");
+      print("================================");
+      return token ?? await ApiService.getOrCreateDeviceId();
+    } catch (e) {
+      debugPrint("FCM token fetch timed out or failed: $e");
+      return await ApiService.getOrCreateDeviceId();
+    }
   }
 
-  Future<void> _completeLoginSession(String apiPassword) async {
+  Future<void> _completeLoginSession() async {
     final deviceId = await _getDeviceId();
 
     try {
       final response = await ApiService.login(
         mobile: widget.phoneNumber,
+        password: widget.apiPassword,
         deviceId: deviceId,
-        password: apiPassword,
       );
 
       bool isNotRegistered = false;
       String errorMessage = 'Login failed.';
+
+      debugPrint("Login response status: ${response.statusCode}");
+      debugPrint("Login response body: ${response.body}");
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         final resData = json.decode(response.body);
@@ -249,6 +303,7 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
                 userCopy['addresses'] = [];
               }
               await prefs.setString('user_data', json.encode(userCopy));
+              await CartManager.migrateGuestCartToUser();
             } catch (prefsErr) {
               debugPrint('Error saving session: $prefsErr');
             }
@@ -277,13 +332,25 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
               _showSuccessDialog(user, token);
             }
             return;
-          } else {
-            isNotRegistered = true;
           }
-        } else {
-          isNotRegistered = true;
         }
+        errorMessage = resData['message'] ?? 'Login failed.';
       } else {
+        try {
+          final resData = json.decode(response.body);
+          errorMessage = resData['message'] ?? 'Login failed.';
+        } catch (_) {
+          errorMessage = 'Server error: ${response.statusCode}';
+        }
+      }
+
+      final lowerMsg = errorMessage.toLowerCase();
+      if (lowerMsg.contains('not register') || 
+          lowerMsg.contains('not found') || 
+          lowerMsg.contains('no vendor') || 
+          lowerMsg.contains('no user') ||
+          lowerMsg.contains('not exist') ||
+          response.statusCode == 404) {
         isNotRegistered = true;
       }
 
@@ -304,7 +371,6 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
                 MaterialPageRoute(
                   builder: (context) => GuestRegisterScreen(
                     prefilledPhone: widget.phoneNumber,
-                    verifiedOtp: apiPassword,
                     cartItems: widget.cartItems!,
                   ),
                 ),
@@ -325,7 +391,6 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
                 MaterialPageRoute(
                   builder: (context) => UserRegisterScreen(
                     prefilledPhone: widget.phoneNumber,
-                    verifiedOtp: apiPassword,
                   ),
                 ),
               );
@@ -372,66 +437,69 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
       barrierDismissible: false,
       builder: (context) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        child: Padding(
-          padding: const EdgeInsets.all(28.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.secondary.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.verified_user_rounded,
-                  color: AppColors.secondary,
-                  size: 40,
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Success!',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Welcome back, ${user['name'] ?? 'User'}!',
-                style: const TextStyle(
-                  fontSize: 15,
-                  color: AppColors.textLight,
-                ),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(context); // Close dialog
-                    Navigator.of(context).pushAndRemoveUntil(
-                      MaterialPageRoute(
-                        builder: (context) => const ECommerceHomeScreen(),
-                      ),
-                      (route) => false,
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 0,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Padding(
+            padding: const EdgeInsets.all(28.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.secondary.withOpacity(0.1),
+                    shape: BoxShape.circle,
                   ),
-                  child: const Text('Continue', style: TextStyle(fontWeight: FontWeight.bold)),
+                  child: const Icon(
+                    Icons.verified_user_rounded,
+                    color: AppColors.secondary,
+                    size: 40,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 24),
+                const Text(
+                  'Success!',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Welcome back, ${user['name'] ?? 'User'}!',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    color: AppColors.textLight,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(context); // Close dialog
+                      Navigator.of(context).pushAndRemoveUntil(
+                        MaterialPageRoute(
+                          builder: (context) => const ECommerceHomeScreen(),
+                        ),
+                        (route) => false,
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text('Continue', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -453,9 +521,300 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
     }
   }
 
+  Widget _buildLeftHeroSection(LinearGradient gradient) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: gradient,
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 36),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Back',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+            ],
+          ),
+          const Spacer(),
+          
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.12),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.shopping_bag_rounded,
+              color: Colors.white,
+              size: 48,
+            ),
+          ),
+          const SizedBox(height: 28),
+          
+          const Text(
+            'Your Neighborhood\nMarketplace',
+            style: TextStyle(
+              fontSize: 38,
+              fontWeight: FontWeight.w900,
+              color: Colors.white,
+              height: 1.2,
+              letterSpacing: 0.8,
+            ),
+          ),
+          const SizedBox(height: 18),
+          const Text(
+            'Discover local products, order instantly, and get lightning fast delivery directly from merchants you trust.',
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.white70,
+              height: 1.5,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 40),
+          
+          _buildHeroBenefit('Faster checkouts & saved addresses'),
+          const SizedBox(height: 16),
+          _buildHeroBenefit('Direct interaction with local shops'),
+          const SizedBox(height: 16),
+          _buildHeroBenefit('Instant delivery & order tracking status'),
+          
+          const Spacer(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeroBenefit(String text) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.check_rounded, color: AppColors.primary, size: 14),
+        ),
+        const SizedBox(width: 14),
+        Text(
+          text,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 14.5,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOtpCard(Color primaryColor, LinearGradient gradient) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
+        child: Container(
+          padding: const EdgeInsets.all(36),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: const Color(0xFFE2E8F0), width: 1.2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.015),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Verify Code',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Enter the 6-digit OTP code sent to +91 ${widget.phoneNumber}',
+                style: const TextStyle(fontSize: 14, color: AppColors.textLight),
+              ),
+              const SizedBox(height: 36),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(6, (index) {
+                  return Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 5),
+                    width: 48,
+                    height: 56,
+                    child: TextFormField(
+                      controller: _controllers[index],
+                      focusNode: _focusNodes[index],
+                      keyboardType: TextInputType.number,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
+                      inputFormatters: [
+                        LengthLimitingTextInputFormatter(1),
+                        FilteringTextInputFormatter.digitsOnly,
+                      ],
+                      onChanged: (val) => _onDigitInput(index, val),
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: AppColors.surface,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: AppColors.border),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: primaryColor, width: 2),
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ),
+              const SizedBox(height: 28),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (!_isResendEnabled)
+                    Text(
+                      'Resend code in ${_timerSeconds}s',
+                      style: const TextStyle(color: AppColors.textLight, fontSize: 14),
+                    )
+                  else
+                    TextButton(
+                      onPressed: _isLoading ? null : _resendOTP,
+                      style: TextButton.styleFrom(foregroundColor: primaryColor),
+                      child: const Text(
+                        'Resend OTP Code',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 36),
+
+              Container(
+                width: double.infinity,
+                height: 54,
+                decoration: BoxDecoration(
+                  gradient: gradient,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: primaryColor.withOpacity(0.3),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _verifyCode,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.transparent,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : const Text(
+                          'Verify & Log In',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- Build ---
   @override
   Widget build(BuildContext context) {
     const Color primaryColor = AppColors.primary;
+    const Color secondaryColor = AppColors.secondary;
+    const LinearGradient gradient = LinearGradient(
+      colors: [primaryColor, secondaryColor],
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    );
+
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isDesktop = screenWidth > 850;
+
+    if (isDesktop) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        body: SafeArea(
+          child: Row(
+            children: [
+              Expanded(
+                flex: 4,
+                child: _buildLeftHeroSection(gradient),
+              ),
+              Expanded(
+                flex: 5,
+                child: Container(
+                  color: const Color(0xFFF8FAFC),
+                  child: Stack(
+                    children: [
+                      Positioned(
+                        top: 16,
+                        left: 16,
+                        child: IconButton(
+                          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: AppColors.textPrimary, size: 20),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ),
+                      FadeTransition(
+                        opacity: _fadeAnimation,
+                        child: _buildOtpCard(primaryColor, gradient),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -490,7 +849,6 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
                 ),
                 const SizedBox(height: 40),
 
-                // OTP Digits input row
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: List.generate(6, (index) {
@@ -531,7 +889,6 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
                 ),
                 const SizedBox(height: 32),
 
-                // Timer & Resend Option
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -553,7 +910,6 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
                 ),
                 const SizedBox(height: 48),
 
-                // Verify Button
                 Container(
                   width: double.infinity,
                   height: 56,

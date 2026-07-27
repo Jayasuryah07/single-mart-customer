@@ -306,8 +306,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
   Future<void> _loadCart() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final String? cartStr = prefs.getString('cart_data');
+      final String? cartStr = await CartManager.getCartData();
       if (cartStr != null && cartStr.isNotEmpty) {
         final List<dynamic> parsed = json.decode(cartStr);
         setState(() {
@@ -321,8 +320,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
   Future<void> _addToCart() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final String? cartStr = prefs.getString('cart_data');
+      final String? cartStr = await CartManager.getCartData();
       List<Map<String, dynamic>> currentCart = [];
       if (cartStr != null && cartStr.isNotEmpty) {
         final List<dynamic> parsed = json.decode(cartStr);
@@ -390,18 +388,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         _quantity = 1;
       });
 
-      await prefs.setString('cart_data', json.encode(currentCart));
-      CartManager.updateCartCount();
+      await CartManager.setCartData(json.encode(currentCart));
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("${widget.product['product_name'] ?? widget.product['name'] ?? 'Product'} added to cart!"),
-          duration: const Duration(seconds: 2),
-          backgroundColor: AppColors.primary,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
+      ShowSnackBar.show(context, "${widget.product['product_name'] ?? widget.product['name'] ?? 'Product'} added to cart!");
     } catch (e) {
       debugPrint("Error adding to cart: $e");
     }

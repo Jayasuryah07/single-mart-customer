@@ -7,11 +7,87 @@ import '../theme.dart';
 class CartManager {
   static final ValueNotifier<int> cartCountNotifier = ValueNotifier<int>(0);
 
+  /// Dynamically computes a unique storage key based on the logged-in user's profile ID
+  static Future<String> getCartKey() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? userStr = prefs.getString('user_data');
+      if (userStr != null && userStr.isNotEmpty) {
+        final Map<String, dynamic> userData = json.decode(userStr);
+        final String userId = userData['id']?.toString() ?? '';
+        if (userId.isNotEmpty) {
+          return 'cart_user_$userId';
+        }
+      }
+    } catch (_) {}
+    return 'cart_guest';
+  }
+
+  /// Retrieve cart data using the active user-scoped key
+  static Future<String?> getCartData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = await getCartKey();
+    return prefs.getString(key);
+  }
+
+  /// Save cart data using the active user-scoped key and refresh global count badges
+  static Future<void> setCartData(String data) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = await getCartKey();
+    await prefs.setString(key, data);
+    await updateCartCount();
+  }
+
+  /// Clear the current user-scoped cart
+  static Future<void> clearCart() async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = await getCartKey();
+    await prefs.remove(key);
+    await updateCartCount();
+  }
+
+  /// Migrates guest cart items to the logged-in user's cart on successful login
+  static Future<void> migrateGuestCartToUser() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? guestCartStr = prefs.getString('cart_guest');
+      if (guestCartStr != null && guestCartStr.isNotEmpty) {
+        final List<dynamic> guestItems = json.decode(guestCartStr);
+        if (guestItems.isNotEmpty) {
+          final String userKey = await getCartKey();
+          if (userKey != 'cart_guest') {
+            final String? userCartStr = prefs.getString(userKey);
+            List<dynamic> userItems = [];
+            if (userCartStr != null && userCartStr.isNotEmpty) {
+              userItems = json.decode(userCartStr);
+            }
+            
+            for (var gItem in guestItems) {
+              final int existingIndex = userItems.indexWhere((uItem) =>
+                  uItem['id'] == gItem['id'] &&
+                  uItem['variant_id'] == gItem['variant_id']);
+              if (existingIndex != -1) {
+                userItems[existingIndex]['quantity'] =
+                    (userItems[existingIndex]['quantity'] ?? 1) +
+                        (gItem['quantity'] ?? 1);
+              } else {
+                userItems.add(gItem);
+              }
+            }
+            
+            await prefs.setString(userKey, json.encode(userItems));
+            await prefs.remove('cart_guest'); // Clear guest cart
+          }
+        }
+      }
+      await updateCartCount();
+    } catch (_) {}
+  }
+
   /// Synchronize the globally visible cart count badge with local SharedPreferences data
   static Future<void> updateCartCount() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final String? cartStr = prefs.getString('cart_data');
+      final cartStr = await getCartData();
       if (cartStr != null && cartStr.isNotEmpty) {
         final List<dynamic> parsed = json.decode(cartStr);
         int totalQuantity = 0;

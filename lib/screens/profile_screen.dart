@@ -6,6 +6,7 @@ import 'update_profile_screen.dart';
 import 'manage_address_screen.dart';
 import 'order_history_screen.dart';
 import 'login_screen.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class ProfileScreen extends StatefulWidget {
   final bool isLoggedIn;
@@ -31,6 +32,67 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _isSyncing = false;
+
+  Future<void> _triggerLocalNotification() async {
+    final theme = Theme.of(context);
+    try {
+      final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+
+      const AndroidInitializationSettings initializationSettingsAndroid =
+          AndroidInitializationSettings('@mipmap/ic_launcher');
+
+      const DarwinInitializationSettings initializationSettingsDarwin =
+          DarwinInitializationSettings();
+
+      const InitializationSettings initializationSettings = InitializationSettings(
+        android: initializationSettingsAndroid,
+        iOS: initializationSettingsDarwin,
+      );
+
+      await flutterLocalNotificationsPlugin.initialize(settings: initializationSettings);
+
+      const AndroidNotificationDetails androidNotificationDetails =
+          AndroidNotificationDetails(
+        'test_channel',
+        'Test Channel',
+        channelDescription: 'Used for local test notifications',
+        importance: Importance.max,
+        priority: Priority.high,
+        ticker: 'ticker',
+      );
+
+      const NotificationDetails notificationDetails = NotificationDetails(
+        android: androidNotificationDetails,
+        iOS: DarwinNotificationDetails(presentSound: true, presentAlert: true, presentBadge: true),
+      );
+
+      await flutterLocalNotificationsPlugin.show(
+        id: 999,
+        title: 'SingleMart Local Test',
+        body: 'This is a local test notification. App notifications are working!',
+        notificationDetails: notificationDetails,
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text("Local test notification triggered successfully!"),
+          backgroundColor: theme.colorScheme.primary,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    } catch (e) {
+      debugPrint("Error showing local notification: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Error: $e"),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+  }
 
   Future<void> _handleRefresh() async {
     setState(() => _isSyncing = true);
@@ -131,6 +193,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: 16),
+              // SizedBox(
+              //   width: double.infinity,
+              //   height: 52,
+              //   child: OutlinedButton.icon(
+              //     onPressed: _triggerLocalNotification,
+              //     style: OutlinedButton.styleFrom(
+              //       foregroundColor: theme.colorScheme.primary,
+              //       side: BorderSide(color: theme.colorScheme.primary, width: 1.5),
+              //       shape: RoundedRectangleBorder(
+              //         borderRadius: BorderRadius.circular(16),
+              //       ),
+              //     ),
+              //     icon: const Icon(Icons.notifications_active_rounded, size: 20),
+              //     label: const Text(
+              //       'Trigger Test Notification',
+              //       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              //     ),
+              //   ),
+              // ),
             ],
           ),
         ),
@@ -397,6 +479,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
 
+            // Padding(
+            //   padding: const EdgeInsets.symmetric(horizontal: 16),
+            //   child: SizedBox(
+            //     width: double.infinity,
+            //     height: 52,
+            //     child: ElevatedButton.icon(
+            //       onPressed: _triggerLocalNotification,
+            //       style: ElevatedButton.styleFrom(
+            //         backgroundColor: theme.colorScheme.primary,
+            //         foregroundColor: Colors.white,
+            //         shape: RoundedRectangleBorder(
+            //           borderRadius: BorderRadius.circular(16),
+            //         ),
+            //         elevation: 1.0,
+            //       ),
+            //       icon: const Icon(Icons.notifications_active_rounded, size: 20),
+            //       label: const Text(
+            //         'Trigger Test Notification',
+            //         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15.5),
+            //       ),
+            //     ),
+            //   ),
+            // ),
+            const SizedBox(height: 12),
             // Logout row button
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),

@@ -24,9 +24,9 @@ class FilterScreen extends StatefulWidget {
 }
 
 class _FilterScreenState extends State<FilterScreen> {
-  late Set<int> _selectedCategoryIds;
-  late Set<int> _selectedSubcategoryIds;
-  late Set<int> _selectedBrandIds;
+  final Set<int> _selectedCategoryIds = {};
+  final Set<int> _selectedSubcategoryIds = {};
+  final Set<int> _selectedBrandIds = {};
 
   int _activeTab = 0; // 0: Categories, 1: Subcategories, 2: Brands
   String _searchText = '';
@@ -35,9 +35,9 @@ class _FilterScreenState extends State<FilterScreen> {
   @override
   void initState() {
     super.initState();
-    _selectedCategoryIds = Set.from(widget.initialCategoryIds);
-    _selectedSubcategoryIds = Set.from(widget.initialSubcategoryIds);
-    _selectedBrandIds = Set.from(widget.initialBrandIds);
+    _selectedCategoryIds.addAll(widget.initialCategoryIds);
+    _selectedSubcategoryIds.addAll(widget.initialSubcategoryIds);
+    _selectedBrandIds.addAll(widget.initialBrandIds);
   }
 
   @override
@@ -100,39 +100,50 @@ class _FilterScreenState extends State<FilterScreen> {
       }).toList();
     }
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        title: const Text(
-          'Filters',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.w900,
-            fontSize: 20,
-            letterSpacing: 0.3,
-          ),
-        ),
-        iconTheme: const IconThemeData(color: AppColors.textPrimary),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1.0),
-          child: Container(
-            color: AppColors.border,
-            height: 1.0,
-          ),
-        ),
-      ),
-      body: Column(
+    final bool isDesktop = MediaQuery.of(context).size.width > 850;
+
+    Widget buildBody() {
+      return Column(
         children: [
+          if (isDesktop) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back_rounded, color: AppColors.textPrimary),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Filters',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 20,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: AppColors.textLight),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+          ],
           Expanded(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 // 1. LEFT SIDEBAR (Tabs Menu)
                 Container(
-                  width: 140,
+                  width: isDesktop ? 180 : 140,
                   color: const Color(0xFFF6F7F9),
                   child: ListView(
                     padding: EdgeInsets.zero,
@@ -340,9 +351,10 @@ class _FilterScreenState extends State<FilterScreen> {
             ),
             decoration: BoxDecoration(
               color: Colors.white,
+              border: const Border(top: BorderSide(color: Color(0xFFE2E8F0))),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.06),
+                  color: Colors.black.withOpacity(0.04),
                   blurRadius: 10,
                   offset: const Offset(0, -4),
                 ),
@@ -396,6 +408,59 @@ class _FilterScreenState extends State<FilterScreen> {
             ),
           ),
         ],
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: isDesktop ? const Color(0xFFF8FAFC) : Colors.white,
+      appBar: isDesktop
+          ? null
+          : AppBar(
+              backgroundColor: Colors.white,
+              elevation: 0,
+              scrolledUnderElevation: 0,
+              title: const Text(
+                'Filters',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 20,
+                  letterSpacing: 0.3,
+                ),
+              ),
+              iconTheme: const IconThemeData(color: AppColors.textPrimary),
+              bottom: PreferredSize(
+                preferredSize: const Size.fromHeight(1.0),
+                child: Container(
+                  color: AppColors.border,
+                  height: 1.0,
+                ),
+              ),
+            ),
+      body: Center(
+        child: isDesktop
+            ? Container(
+                margin: const EdgeInsets.symmetric(vertical: 40),
+                width: 800,
+                height: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFE2E8F0), width: 1.0),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.04),
+                      blurRadius: 16,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: buildBody(),
+                ),
+              )
+            : buildBody(),
       ),
     );
   }
