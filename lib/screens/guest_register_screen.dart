@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../theme.dart';
 import 'ecommerce_home_screen.dart';
+import '../widgets/cart_button.dart';
 import 'checkout_screen.dart';
 
 class GuestRegisterScreen extends StatefulWidget {
@@ -43,6 +44,16 @@ class _GuestRegisterScreenState extends State<GuestRegisterScreen>
       TextEditingController(text: 'India');
   final TextEditingController _addressTypeController =
       TextEditingController(text: 'Home');
+
+  // Focus nodes
+  final FocusNode _nameFocusNode = FocusNode();
+  final FocusNode _emailFocusNode = FocusNode();
+  final FocusNode _phoneFocusNode = FocusNode();
+  final FocusNode _addressLine1FocusNode = FocusNode();
+  final FocusNode _cityFocusNode = FocusNode();
+  final FocusNode _stateFocusNode = FocusNode();
+  final FocusNode _pincodeFocusNode = FocusNode();
+  final FocusNode _countryFocusNode = FocusNode();
 
   bool _isLoading = false;
   late AnimationController _animationController;
@@ -111,11 +122,65 @@ class _GuestRegisterScreenState extends State<GuestRegisterScreen>
     _countryController.dispose();
     _addressTypeController.dispose();
     _animationController.dispose();
+    _nameFocusNode.dispose();
+    _emailFocusNode.dispose();
+    _phoneFocusNode.dispose();
+    _addressLine1FocusNode.dispose();
+    _cityFocusNode.dispose();
+    _stateFocusNode.dispose();
+    _pincodeFocusNode.dispose();
+    _countryFocusNode.dispose();
     super.dispose();
   }
 
+  void _focusOnFirstValidationError() {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      _nameFocusNode.requestFocus();
+      return;
+    }
+    final email = _emailController.text.trim();
+    if (email.isEmpty || !RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email)) {
+      _emailFocusNode.requestFocus();
+      return;
+    }
+    final phone = _phoneController.text.trim();
+    if (phone.length != 10) {
+      _phoneFocusNode.requestFocus();
+      return;
+    }
+    final addr1 = _addressLine1Controller.text.trim();
+    if (addr1.isEmpty) {
+      _addressLine1FocusNode.requestFocus();
+      return;
+    }
+    final city = _cityController.text.trim();
+    if (city.isEmpty) {
+      _cityFocusNode.requestFocus();
+      return;
+    }
+    final state = _stateController.text.trim();
+    if (state.isEmpty) {
+      _stateFocusNode.requestFocus();
+      return;
+    }
+    final pincode = _pincodeController.text.trim();
+    if (pincode.length != 6) {
+      _pincodeFocusNode.requestFocus();
+      return;
+    }
+    final country = _countryController.text.trim();
+    if (country.isEmpty) {
+      _countryFocusNode.requestFocus();
+      return;
+    }
+  }
+
   Future<void> _submitGuestDetails() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) {
+      _focusOnFirstValidationError();
+      return;
+    }
 
     setState(() => _isLoading = true);
 
@@ -225,8 +290,7 @@ class _GuestRegisterScreenState extends State<GuestRegisterScreen>
             : int.tryParse(resData['code']?.toString() ?? '200') ?? 200;
 
         if (code == 200 || code == 201) {
-          final String otpPass = widget.verifiedOtp ?? '123456';
-          _loginAndNavigate(mobile, otpPass);
+          _loginAndNavigate(mobile);
         } else {
           setState(() => _isLoading = false);
           _showSnackBar(
@@ -264,10 +328,10 @@ class _GuestRegisterScreenState extends State<GuestRegisterScreen>
     }
   }
 
-  Future<void> _loginAndNavigate(String phone, String otpPassword) async {
+  Future<void> _loginAndNavigate(String phone) async {
     try {
-      // Step 1: Call checkMobile to generate a valid login OTP/password for this newly registered user
-      String activePassword = otpPassword;
+      // Step 1: Call checkMobile to get the newly generated database OTP/password for this newly registered user
+      String activePassword = widget.verifiedOtp ?? '123456';
       try {
         final checkResponse = await ApiService.checkMobile(phone);
         if (checkResponse.statusCode == 200 || checkResponse.statusCode == 201) {
@@ -286,12 +350,12 @@ class _GuestRegisterScreenState extends State<GuestRegisterScreen>
         debugPrint("Error fetching active OTP during guest direct login check: $checkErr");
       }
 
-      // Step 2: Perform the login request using the active OTP/password
+      // Step 2: Perform the login request using mobile, password, and device ID
       final deviceId = await ApiService.getOrCreateDeviceId();
       final response = await ApiService.login(
         mobile: phone,
-        deviceId: deviceId,
         password: activePassword,
+        deviceId: deviceId,
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
@@ -317,6 +381,7 @@ class _GuestRegisterScreenState extends State<GuestRegisterScreen>
               userCopy['addresses'] = [];
             }
             await prefs.setString('user_data', json.encode(userCopy));
+            await CartManager.migrateGuestCartToUser();
 
             if (mounted) {
               _showSnackBar('Details saved. Continuing to checkout...', Colors.green, Icons.check_circle_rounded);
@@ -468,6 +533,7 @@ class _GuestRegisterScreenState extends State<GuestRegisterScreen>
                   const SizedBox(height: 8),
                   TextFormField(
                     controller: _nameController,
+                    focusNode: _nameFocusNode,
                     validator: (val) =>
                         val == null || val.trim().isEmpty ? 'Please enter your full name' : null,
                     decoration: _buildInputDecoration(
@@ -482,6 +548,7 @@ class _GuestRegisterScreenState extends State<GuestRegisterScreen>
                   const SizedBox(height: 8),
                   TextFormField(
                     controller: _emailController,
+                    focusNode: _emailFocusNode,
                     keyboardType: TextInputType.emailAddress,
                     validator: (val) {
                       if (val == null || val.trim().isEmpty) {
@@ -531,6 +598,7 @@ class _GuestRegisterScreenState extends State<GuestRegisterScreen>
                       Expanded(
                         child: TextFormField(
                           controller: _phoneController,
+                          focusNode: _phoneFocusNode,
                           readOnly: true, // Phone number verified via OTP, keep read-only
                           decoration: _buildInputDecoration(
                             hint: 'Phone number',
@@ -560,6 +628,7 @@ class _GuestRegisterScreenState extends State<GuestRegisterScreen>
                   const SizedBox(height: 8),
                   TextFormField(
                     controller: _addressLine1Controller,
+                    focusNode: _addressLine1FocusNode,
                     validator: (val) =>
                         val == null || val.trim().isEmpty ? 'Please enter your street address' : null,
                     decoration: _buildInputDecoration(
@@ -605,6 +674,7 @@ class _GuestRegisterScreenState extends State<GuestRegisterScreen>
                             const SizedBox(height: 8),
                             TextFormField(
                               controller: _cityController,
+                              focusNode: _cityFocusNode,
                               validator: (val) =>
                                   val == null || val.trim().isEmpty ? 'Enter city' : null,
                               decoration: _buildInputDecoration(
@@ -648,6 +718,7 @@ class _GuestRegisterScreenState extends State<GuestRegisterScreen>
                             _buildLabel('STATE'),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<String>(
+                              focusNode: _stateFocusNode,
                               isExpanded: true,
                               value: _selectedState,
                               items: _states.map((state) {
@@ -687,6 +758,7 @@ class _GuestRegisterScreenState extends State<GuestRegisterScreen>
                             const SizedBox(height: 8),
                             TextFormField(
                               controller: _pincodeController,
+                              focusNode: _pincodeFocusNode,
                               keyboardType: TextInputType.number,
                               inputFormatters: [
                                 LengthLimitingTextInputFormatter(6),
@@ -720,6 +792,7 @@ class _GuestRegisterScreenState extends State<GuestRegisterScreen>
                             const SizedBox(height: 8),
                             TextFormField(
                               controller: _countryController,
+                              focusNode: _countryFocusNode,
                               validator: (val) =>
                                   val == null || val.trim().isEmpty ? 'Enter country' : null,
                               decoration: _buildInputDecoration(

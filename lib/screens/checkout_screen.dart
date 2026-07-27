@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../theme.dart';
+import '../widgets/cart_button.dart';
 import 'manage_address_screen.dart';
 
 class CheckoutScreen extends StatefulWidget {
@@ -393,8 +394,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         // Clear local cart
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.remove('cart_data');
+        await CartManager.clearCart();
         
         if (mounted) {
           _showOrderSuccessDialog();

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../theme.dart';
+import '../widgets/cart_button.dart';
 import 'login_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -469,6 +470,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('auth_token');
       await prefs.remove('user_data');
+      await CartManager.updateCartCount(); // Refresh count badge to guest cart!
     } catch (e) {
       debugPrint('Error clearing preferences: $e');
     }

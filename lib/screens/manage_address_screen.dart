@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
@@ -570,8 +571,287 @@ class _ManageAddressScreenState extends State<ManageAddressScreen> {
     );
   }
 
+  Widget _buildAddNewAddressCard() {
+    return GestureDetector(
+      onTap: () => _showAddressDialog(),
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.08),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.add_location_alt_rounded,
+                  color: AppColors.primary,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Add New Address',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Add a shipping or billing address',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textLight,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAddressCard(Map<String, dynamic> addr, int index, bool isDesktop) {
+    final isDefault = addr['is_default'].toString() == '1' || addr['is_default'].toString() == 'true';
+    final String rawType = addr['address_type']?.toString().toLowerCase() ?? 'home';
+    
+    IconData typeIcon = Icons.home_rounded;
+    Color typeColor = const Color(0xFF4F46E5); // Home Indigo
+    Color typeBg = const Color(0xFFEEF2FF);
+    
+    if (rawType == 'work') {
+      typeIcon = Icons.business_rounded;
+      typeColor = const Color(0xFF16A34A); // Work Green
+      typeBg = const Color(0xFFF0FDF4);
+    } else if (rawType == 'other') {
+      typeIcon = Icons.location_on_rounded;
+      typeColor = const Color(0xFFE11D48); // Other Red
+      typeBg = const Color(0xFFFFF1F2);
+    }
+
+    return GestureDetector(
+      onTap: () => _setDefaultAddress(index),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        margin: isDesktop ? EdgeInsets.zero : const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: isDefault ? const Color(0xFFFDF8F6) : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isDefault ? AppColors.primary : const Color(0xFFE2E8F0),
+            width: isDefault ? 1.8 : 1.2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isDefault 
+                  ? AppColors.primary.withOpacity(0.04) 
+                  : Colors.black.withOpacity(0.015),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: typeBg,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(typeIcon, color: typeColor, size: 18),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          addr['address_type']?.toString().toUpperCase() ?? 'ADDRESS',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900, 
+                            fontSize: 13,
+                            color: AppColors.textPrimary,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (isDefault)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(Icons.check_circle_rounded, color: Colors.white, size: 12),
+                            SizedBox(width: 4),
+                            Text(
+                              'Default',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      const Text(
+                        'Tap to Set Default',
+                        style: TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                  ],
+                ),
+                const Divider(height: 24, color: Color(0xFFF1F5F9)),
+
+                Text(
+                  "${addr['address_line_1']}",
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14.5, 
+                    color: AppColors.textPrimary, 
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (addr['address_line_2'] != null && addr['address_line_2'].toString().isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    "${addr['address_line_2']}",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 13, color: AppColors.textSecondary, fontWeight: FontWeight.w500),
+                  ),
+                ],
+                if (addr['landmark'] != null && addr['landmark'].toString().isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    "Landmark: ${addr['landmark']}",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12, 
+                      color: AppColors.textLight, 
+                      fontStyle: FontStyle.italic,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                Text(
+                  "${addr['city']}, ${addr['district']}, ${addr['state']} - ${addr['pincode']}",
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13, 
+                    color: AppColors.textSecondary, 
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  "${addr['country']}",
+                  style: const TextStyle(
+                    fontSize: 12.5, 
+                    color: AppColors.textLight,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+
+            Column(
+              children: [
+                const Divider(height: 24, color: Color(0xFFF1F5F9)),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    InkWell(
+                      onTap: () => _showAddressDialog(addressToEdit: addr, editIndex: index),
+                      borderRadius: BorderRadius.circular(10),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(Icons.edit_location_alt_rounded, size: 16, color: AppColors.primary),
+                            SizedBox(width: 4),
+                            Text(
+                              'Edit',
+                              style: TextStyle(
+                                color: AppColors.primary, 
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    InkWell(
+                      onTap: () => _deleteAddress(index),
+                      borderRadius: BorderRadius.circular(10),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(Icons.delete_sweep_rounded, size: 16, color: AppColors.error),
+                            SizedBox(width: 4),
+                            Text(
+                              'Delete',
+                              style: TextStyle(
+                                color: AppColors.error, 
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isDesktop = screenWidth > 850;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
@@ -604,209 +884,43 @@ class _ManageAddressScreenState extends State<ManageAddressScreen> {
             ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
             : _addresses.isEmpty
                 ? _buildEmptyState()
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    physics: const BouncingScrollPhysics(),
-                    itemCount: _addresses.length,
-                    itemBuilder: (context, index) {
-                      final addr = _addresses[index];
-                      final isDefault = addr['is_default'].toString() == '1' || addr['is_default'].toString() == 'true';
-                      final String rawType = addr['address_type']?.toString().toLowerCase() ?? 'home';
-                      
-                      IconData typeIcon = Icons.home_rounded;
-                      Color typeColor = const Color(0xFF4F46E5); // Home Indigo
-                      Color typeBg = const Color(0xFFEEF2FF);
-                      
-                      if (rawType == 'work') {
-                        typeIcon = Icons.business_rounded;
-                        typeColor = const Color(0xFF16A34A); // Work Green
-                        typeBg = const Color(0xFFF0FDF4);
-                      } else if (rawType == 'other') {
-                        typeIcon = Icons.location_on_rounded;
-                        typeColor = const Color(0xFFE11D48); // Other Red
-                        typeBg = const Color(0xFFFFF1F2);
-                      }
-
-                      return GestureDetector(
-                        onTap: () => _setDefaultAddress(index),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 250),
-                          margin: const EdgeInsets.only(bottom: 14),
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: isDefault ? const Color(0xFFEFF6FF) : Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: isDefault ? AppColors.primary : const Color(0xFFE2E8F0),
-                              width: isDefault ? 2.0 : 1.2,
+                : (isDesktop
+                    ? Center(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(40),
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 1000),
+                            child: GridView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                                maxCrossAxisExtent: 450,
+                                mainAxisExtent: 290,
+                                crossAxisSpacing: 24,
+                                mainAxisSpacing: 24,
+                              ),
+                              itemCount: _addresses.length + 1,
+                              itemBuilder: (context, index) {
+                                if (index == _addresses.length) {
+                                  return CustomPaint(
+                                    painter: DashedBorderPainter(color: const Color(0xFFCBD5E1)),
+                                    child: _buildAddNewAddressCard(),
+                                  );
+                                }
+                                return _buildAddressCard(_addresses[index], index, true);
+                              },
                             ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: isDefault 
-                                    ? AppColors.primary.withOpacity(0.06) 
-                                    : Colors.black.withOpacity(0.015),
-                                blurRadius: 12,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          color: typeBg,
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: Icon(typeIcon, color: typeColor, size: 18),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Text(
-                                        addr['address_type']?.toString() ?? 'Address',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w900, 
-                                          fontSize: 14.5,
-                                          color: AppColors.textPrimary,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  if (isDefault)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.primary,
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: const [
-                                          Icon(Icons.check_circle_rounded, color: Colors.white, size: 12),
-                                          SizedBox(width: 4),
-                                          Text(
-                                            'Default',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              const Divider(height: 24, color: Color(0xFFF1F5F9)),
-
-                              Text(
-                                "${addr['address_line_1']}",
-                                style: const TextStyle(
-                                  fontSize: 14, 
-                                  color: AppColors.textPrimary, 
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              if (addr['address_line_2'] != null && addr['address_line_2'].toString().isNotEmpty) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  "${addr['address_line_2']}",
-                                  style: const TextStyle(fontSize: 13, color: AppColors.textSecondary, fontWeight: FontWeight.w500),
-                                ),
-                              ],
-                              if (addr['landmark'] != null && addr['landmark'].toString().isNotEmpty) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  "Landmark: ${addr['landmark']}",
-                                  style: const TextStyle(
-                                    fontSize: 12, 
-                                    color: AppColors.textLight, 
-                                    fontStyle: FontStyle.italic,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                              const SizedBox(height: 8),
-                              Text(
-                                "${addr['city']}, ${addr['district']}, ${addr['state']} - ${addr['pincode']}",
-                                style: const TextStyle(
-                                  fontSize: 13, 
-                                  color: AppColors.textSecondary, 
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                "${addr['country']}",
-                                style: const TextStyle(
-                                  fontSize: 12.5, 
-                                  color: AppColors.textLight,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-
-                              const Divider(height: 28, color: Color(0xFFF1F5F9)),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  InkWell(
-                                    onTap: () => _showAddressDialog(addressToEdit: addr, editIndex: index),
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: const [
-                                          Icon(Icons.edit_location_alt_rounded, size: 16, color: AppColors.primary),
-                                          SizedBox(width: 4),
-                                          Text(
-                                            'Edit',
-                                            style: TextStyle(
-                                              color: AppColors.primary, 
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 14),
-                                  InkWell(
-                                    onTap: () => _deleteAddress(index),
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: const [
-                                          Icon(Icons.delete_sweep_rounded, size: 16, color: AppColors.error),
-                                          SizedBox(width: 4),
-                                          Text(
-                                            'Delete',
-                                            style: TextStyle(
-                                              color: AppColors.error, 
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
                           ),
                         ),
-                      );
-                    },
-                  ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        physics: const BouncingScrollPhysics(),
+                        itemCount: _addresses.length,
+                        itemBuilder: (context, index) {
+                          return _buildAddressCard(_addresses[index], index, false);
+                        },
+                      )),
       ),
     );
   }
@@ -890,3 +1004,50 @@ class _ManageAddressScreenState extends State<ManageAddressScreen> {
     );
   }
 }
+
+class DashedBorderPainter extends CustomPainter {
+  final Color color;
+  final double strokeWidth;
+  final double gap;
+  final double radius;
+
+  DashedBorderPainter({
+    required this.color,
+    this.strokeWidth = 1.5,
+    this.gap = 5,
+    this.radius = 20,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Paint paint = Paint()
+      ..color = color
+      ..strokeWidth = strokeWidth
+      ..style = PaintingStyle.stroke;
+
+    final RRect rrect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Radius.circular(radius),
+    );
+
+    final Path path = Path()..addRRect(rrect);
+    final Path dashPath = Path();
+
+    double distance = 0.0;
+    for (PathMetric measurePath in path.computeMetrics()) {
+      while (distance < measurePath.length) {
+        dashPath.addPath(
+          measurePath.extractPath(distance, distance + gap),
+          Offset.zero,
+        );
+        distance += gap * 2;
+      }
+    }
+
+    canvas.drawPath(dashPath, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+

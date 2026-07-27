@@ -128,6 +128,7 @@ class _CategoriesListScreenState extends State<CategoriesListScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final bool isDesktop = MediaQuery.of(context).size.width > 850;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -276,11 +277,11 @@ class _CategoriesListScreenState extends State<CategoriesListScreen> {
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 4,
-                      crossAxisSpacing: 10,
-                      mainAxisSpacing: 16,
-                      childAspectRatio: 0.72,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: isDesktop ? 8 : 4,
+                      crossAxisSpacing: isDesktop ? 16 : 10,
+                      mainAxisSpacing: isDesktop ? 20 : 16,
+                      childAspectRatio: isDesktop ? 0.85 : 0.72,
                     ),
                     itemCount: widget.categories.length,
                     itemBuilder: (context, index) {
@@ -309,7 +310,17 @@ class _CategoriesListScreenState extends State<CategoriesListScreen> {
                                   decoration: BoxDecoration(
                                     color: Colors.white,
                                     shape: BoxShape.circle,
-                                    border: Border.all(color: AppColors.border, width: 1.0),
+                                    border: Border.all(
+                                      color: AppColors.border.withOpacity(0.6),
+                                      width: 1.0,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.02),
+                                        blurRadius: 6,
+                                        offset: const Offset(0, 3),
+                                      ),
+                                    ],
                                   ),
                                   child: ClipOval(
                                     child: Image.network(
@@ -335,12 +346,12 @@ class _CategoriesListScreenState extends State<CategoriesListScreen> {
                             const SizedBox(height: 10),
                             Text(
                               cat['categories_name'] ?? 'Category',
-                              maxLines: 1,
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w900,
+                              style: TextStyle(
+                                fontSize: isDesktop ? 13 : 11,
+                                fontWeight: FontWeight.bold,
                                 color: AppColors.textPrimary,
                               ),
                             ),
