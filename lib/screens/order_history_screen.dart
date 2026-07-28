@@ -1,16 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:open_file/open_file.dart';
 import '../services/api_service.dart';
 import '../theme.dart';
+import '../utils/file_saver.dart';
 import 'product_detail_screen.dart';
 // ignore: depend_on_referenced_packages
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+// open_file is only used on mobile/native paths
+// ignore: depend_on_referenced_packages
+import 'package:open_file/open_file.dart';
 
 class OrderHistoryScreen extends StatefulWidget {
   final String token;
@@ -38,6 +40,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
   String _baseNoImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/no_image.jpg';
   String _baseProductImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/product_images/';
   String _baseProductVariantImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/product_variant_images/';
+  String _basePaymentImageUrl = 'https://agsdemo.in/singlemartapi/public/assets/images/payment_images/';
 
   final List<String> _statuses = [
     'All',
@@ -77,6 +80,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
         _baseNoImageUrl = prefs.getString('base_no_image_url') ?? _baseNoImageUrl;
         _baseProductImageUrl = prefs.getString('base_product_image_url') ?? _baseProductImageUrl;
         _baseProductVariantImageUrl = prefs.getString('base_product_variant_image_url') ?? _baseProductVariantImageUrl;
+        _basePaymentImageUrl = prefs.getString('base_payment_image_url') ?? _basePaymentImageUrl;
       });
     } catch (_) {}
   }
@@ -107,6 +111,17 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
       if (ordersRes.statusCode == 200) {
         final body = json.decode(ordersRes.body);
         loadedOrders = body['data'] ?? [];
+        // Parse dynamic image base URLs from API response
+        final List<dynamic> imageUrls = body['image_url'] ?? [];
+        for (final img in imageUrls) {
+          final imageFor = img['image_for']?.toString() ?? '';
+          final imageUrl = img['image_url']?.toString() ?? '';
+          if (imageFor == 'Payment' && imageUrl.isNotEmpty) {
+            _basePaymentImageUrl = imageUrl;
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('base_payment_image_url', imageUrl);
+          }
+        }
       } else {
         if (!isSilent) {
           setState(() {
@@ -360,37 +375,30 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
       );
 
       final pdfBytes = await _generateBeautifulPdf(order);
-      
-      // Get directory for saving (use external storage on Android for better user visibility)
-      Directory? directory;
-      if (Platform.isAndroid) {
-        directory = await getExternalStorageDirectory();
-      }
-      directory ??= await getApplicationDocumentsDirectory();
-      
-      // Sanitize order reference — strip ALL filesystem-unsafe chars
-      // e.g. ORD/2025-26/14 → ORD_2025-26_14 to avoid nested path creation
+
       final orderRef = order['order_ref'] ?? 'Order_${order['id']}';
       final safeRef = orderRef
           .replaceAll(RegExp(r'[/\\:#*?"<>|]'), '_')
-          .replaceAll(RegExp(r'_+'), '_');  // collapse multiple underscores
+          .replaceAll(RegExp(r'_+'), '_');
       final fileName = 'Invoice_$safeRef.pdf';
-      final filePath = '${directory.path}/$fileName';
-      
-      // Ensure parent directory exists before writing
-      final parentDir = Directory(directory.path);
-      if (!await parentDir.exists()) {
-        await parentDir.create(recursive: true);
-      }
 
-      final file = File(filePath);
-      await file.writeAsBytes(pdfBytes);
-      
+      // Cross-platform save: uses browser blob download on Web, file system on mobile
+      final savedPath = await saveAndDownloadFile(pdfBytes, fileName);
+
       if (!mounted) return;
       Navigator.pop(context);
-      
-      _showDownloadSuccessDialog(filePath);
-      
+
+      if (kIsWeb) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Invoice "$fileName" downloaded successfully.'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else {
+        _showDownloadSuccessDialog(savedPath);
+      }
     } catch (e) {
       if (!mounted) return;
       Navigator.pop(context);
@@ -884,26 +892,27 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Close', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
-          ElevatedButton.icon(
-            onPressed: () async {
-              try {
-                await OpenFile.open(filePath);
-                if (ctx.mounted) Navigator.pop(ctx);
-              } catch (e) {
-                if (ctx.mounted) { 
-                  ScaffoldMessenger.of(ctx).showSnackBar(
-                    SnackBar(content: Text('Could not open file: ${e.toString()}')),
-                  );
+          if (!kIsWeb)
+            ElevatedButton.icon(
+              onPressed: () async {
+                try {
+                  await OpenFile.open(filePath);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                } catch (e) {
+                  if (ctx.mounted) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      SnackBar(content: Text('Could not open file: ${e.toString()}')),
+                    );
+                  }
                 }
-              }
-            },
-            icon: const Icon(Icons.open_in_new, size: 18,color: Colors.white),
-            label: const Text('Open File', style: TextStyle(color: Colors.white)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              },
+              icon: const Icon(Icons.open_in_new, size: 18, color: Colors.white),
+              label: const Text('Open File', style: TextStyle(color: Colors.white)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -933,55 +942,172 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
   }
 
   void _showProofDialog(String screenshotFilename) {
-    final String url = "https://agsdemo.in/singlemartapi/public/assets/images/user_images/$screenshotFilename";
+    final String url = '$_basePaymentImageUrl$screenshotFilename';
+    final screenSize = MediaQuery.of(context).size;
     showDialog(
       context: context,
+      barrierColor: Colors.black87,
       builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AppBar(
-              title: const Text('Payment Screenshot', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              automaticallyImplyLeading: false,
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.close, color: AppColors.textPrimary),
-                  onPressed: () => Navigator.pop(ctx),
-                )
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 520,
+            maxHeight: screenSize.height * 0.85,
+          ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A1A2E),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.5),
+                  blurRadius: 30,
+                  offset: const Offset(0, 10),
+                ),
               ],
             ),
-            Padding(
-              padding: const EdgeInsets.only(left: 20, right: 20, bottom: 20),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.network(
-                  url,
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      height: 250,
-                      color: AppColors.border.withOpacity(0.3),
-                      child: const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.broken_image, color: AppColors.textMuted, size: 40),
-                          SizedBox(height: 8),
-                          Text('Screenshot file not found on server', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
-                        ],
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF16213E),
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(Icons.receipt_long, color: AppColors.primary, size: 18),
                       ),
-                    );
-                  },
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'Payment Screenshot',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () => Navigator.pop(ctx),
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.close, color: Colors.white70, size: 18),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+                // Hint row
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  color: const Color(0xFF0F3460),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.pinch, color: Colors.white54, size: 14),
+                      const SizedBox(width: 6),
+                      const Text(
+                        'Pinch to zoom · Double tap to reset',
+                        style: TextStyle(fontSize: 11, color: Colors.white54),
+                      ),
+                    ],
+                  ),
+                ),
+                // Image area — constrained + zoomable
+                Flexible(
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+                    child: Container(
+                      color: const Color(0xFF0D0D1A),
+                      child: InteractiveViewer(
+                        panEnabled: true,
+                        minScale: 0.8,
+                        maxScale: 5.0,
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Image.network(
+                            url,
+                            fit: BoxFit.contain,
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return SizedBox(
+                                height: 260,
+                                child: Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      CircularProgressIndicator(
+                                        value: loadingProgress.expectedTotalBytes != null
+                                            ? loadingProgress.cumulativeBytesLoaded /
+                                                loadingProgress.expectedTotalBytes!
+                                            : null,
+                                        color: AppColors.primary,
+                                        strokeWidth: 2,
+                                      ),
+                                      const SizedBox(height: 12),
+                                      const Text(
+                                        'Loading screenshot…',
+                                        style: TextStyle(fontSize: 12, color: Colors.white54),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                height: 220,
+                                alignment: Alignment.center,
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.broken_image_outlined, color: Colors.white24, size: 48),
+                                    const SizedBox(height: 12),
+                                    const Text(
+                                      'Screenshot not found on server',
+                                      style: TextStyle(fontSize: 13, color: Colors.white38),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      screenshotFilename,
+                                      style: const TextStyle(fontSize: 10, color: Colors.white24),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -1030,8 +1156,11 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
           ),
         ),
       ),
-      body: Column(
-        children: [
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1000),
+          child: Column(
+            children: [
           Container(
             color: Colors.white,
             height: 54,
@@ -1416,22 +1545,87 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                                               
                                               Row(
                                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                crossAxisAlignment: CrossAxisAlignment.end,
                                                 children: [
-                                                  Row(
-                                                    children: [
-                                                      const Text(
-                                                        'Pay: ',
-                                                        style: TextStyle(fontSize: 11, color: AppColors.textLight, fontWeight: FontWeight.w500),
-                                                      ),
-                                                      Text(
-                                                        paymentStatus,
-                                                        style: TextStyle(
-                                                          fontSize: 11,
-                                                          fontWeight: FontWeight.w900,
-                                                          color: paymentStatus.toLowerCase() == 'received' ? const Color(0xFF2E7D32) : const Color(0xFFEF6C00),
+                                                  Expanded(
+                                                    child: Column(
+                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                      children: [
+                                                        Row(
+                                                          children: [
+                                                            const Text(
+                                                              'Pay: ',
+                                                              style: TextStyle(fontSize: 11, color: AppColors.textLight, fontWeight: FontWeight.w500),
+                                                            ),
+                                                            Text(
+                                                              paymentStatus,
+                                                              style: TextStyle(
+                                                                fontSize: 11,
+                                                                fontWeight: FontWeight.w900,
+                                                                color: paymentStatus.toLowerCase() == 'received' ? const Color(0xFF2E7D32) : const Color(0xFFEF6C00),
+                                                              ),
+                                                            ),
+                                                          ],
                                                         ),
-                                                      ),
-                                                    ],
+                                                        const SizedBox(height: 4),
+                                                        Row(
+                                                          children: [
+                                                            Icon(
+                                                              (firstItem['order_payment_type']?.toString().toLowerCase() == 'cash on delivery')
+                                                                  ? Icons.money_rounded
+                                                                  : Icons.payment_rounded,
+                                                              size: 13,
+                                                              color: AppColors.textLight,
+                                                            ),
+                                                            const SizedBox(width: 4),
+                                                            Text(
+                                                              firstItem['order_payment_type']?.toString() ?? 'Online',
+                                                              style: const TextStyle(
+                                                                fontSize: 11,
+                                                                fontWeight: FontWeight.w600,
+                                                                color: AppColors.textSecondary,
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                        if (firstItem['order_payment_type']?.toString().toLowerCase() != 'cash on delivery' &&
+                                                            firstItem['order_payment_screenshot'] != null &&
+                                                            firstItem['order_payment_screenshot'].toString().trim().isNotEmpty) ...[
+                                                          const SizedBox(height: 6),
+                                                          InkWell(
+                                                            onTap: () => _showProofDialog(firstItem['order_payment_screenshot'].toString()),
+                                                            borderRadius: BorderRadius.circular(6),
+                                                            child: Container(
+                                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                              decoration: BoxDecoration(
+                                                                color: theme.colorScheme.primary.withOpacity(0.08),
+                                                                borderRadius: BorderRadius.circular(6),
+                                                                border: Border.all(color: theme.colorScheme.primary.withOpacity(0.12)),
+                                                              ),
+                                                              child: Row(
+                                                                mainAxisSize: MainAxisSize.min,
+                                                                children: [
+                                                                  Icon(
+                                                                    Icons.receipt_long_rounded,
+                                                                    size: 11,
+                                                                    color: theme.colorScheme.primary,
+                                                                  ),
+                                                                  const SizedBox(width: 4),
+                                                                  Text(
+                                                                    'View Proof',
+                                                                    style: TextStyle(
+                                                                      fontSize: 10,
+                                                                      fontWeight: FontWeight.w900,
+                                                                      color: theme.colorScheme.primary,
+                                                                    ),
+                                                                  ),
+                                                                ],
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ],
+                                                    ),
                                                   ),
                                                   Text(
                                                     'Subtotal: ₹${groupSubtotal.toStringAsFixed(0)}',
@@ -1472,7 +1666,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                           ),
           ),
         ],
-      ),
+      ))),
     );
   }
 

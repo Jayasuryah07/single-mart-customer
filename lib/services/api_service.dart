@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
@@ -287,7 +288,8 @@ class ApiService {
     required String remarks,
     required List<Map<String, dynamic>> cartItems,
     required Map<int, String> utrByVendor,
-    required Map<int, File?> screenshotFileByVendor,
+    required Map<int, XFile?> screenshotFileByVendor,
+    required Map<int, String> paymentTypeByVendor,
     required String token,
   }) async {
     final uri = Uri.parse('$baseUrl/order');
@@ -312,14 +314,17 @@ class ApiService {
       request.fields['subs[$i][order_product_id]'] = item['id'].toString();
       request.fields['subs[$i][order_product_variant_id]'] = variantIdStr;
       request.fields['subs[$i][order_quantity]'] = item['quantity'].toString();
+      request.fields['subs[$i][order_payment_type]'] = paymentTypeByVendor[vId] ?? 'Online';
       request.fields['subs[$i][order_payment_utr_no]'] = utrByVendor[vId] ?? '';
 
-      final File? screenshotFile = screenshotFileByVendor[vId];
-      if (screenshotFile != null && await screenshotFile.exists()) {
+      final XFile? screenshotFile = screenshotFileByVendor[vId];
+      if (screenshotFile != null) {
+        final bytes = await screenshotFile.readAsBytes();
         request.files.add(
-          await http.MultipartFile.fromPath(
+          http.MultipartFile.fromBytes(
             'subs[$i][order_payment_screenshot]',
-            screenshotFile.path,
+            bytes,
+            filename: screenshotFile.name,
           ),
         );
       }
