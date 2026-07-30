@@ -353,7 +353,13 @@ class ApiService {
     ).timeout(const Duration(seconds: 15));
   }
 
-  /// 20. Post Product Review
+  /// 20. Fetch Best Seller Products
+  static Future<http.Response> fetchBestSellerProducts() async {
+    final uri = Uri.parse('$baseUrl/bestSellerProducts');
+    return await http.get(uri).timeout(const Duration(seconds: 10));
+  }
+
+  /// 21. Post Product Review
   static Future<http.Response> postProductReview({
     required String productId,
     required String productRating,
