@@ -9,5 +9,5 @@ Future<String> saveAndDownloadFile(List<int> bytes, String fileName) async {
     ..setAttribute('download', fileName)
     ..click());
   html.Url.revokeObjectUrl(url);
-  return fileName;
+  return fileName; // No file path on web — return file name as indicator.
 }

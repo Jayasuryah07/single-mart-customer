@@ -376,6 +376,8 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
 
       final pdfBytes = await _generateBeautifulPdf(order);
 
+      // Sanitize order reference — strip ALL filesystem-unsafe chars
+      // e.g. ORD/2025-26/14 → ORD_2025-26_14
       final orderRef = order['order_ref'] ?? 'Order_${order['id']}';
       final safeRef = orderRef
           .replaceAll(RegExp(r'[/\\:#*?"<>|]'), '_')
@@ -383,12 +385,14 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
       final fileName = 'Invoice_$safeRef.pdf';
 
       // Cross-platform save: uses browser blob download on Web, file system on mobile
-      final savedPath = await saveAndDownloadFile(pdfBytes, fileName);
+      // saveAndDownloadFile may not return a path on all platforms (void), so don't assume a return value.
+      await saveAndDownloadFile(pdfBytes, fileName);
 
       if (!mounted) return;
       Navigator.pop(context);
 
       if (kIsWeb) {
+        // On web, browser handled the download — show a simple snackbar
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Invoice "$fileName" downloaded successfully.'),
@@ -397,7 +401,8 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
           ),
         );
       } else {
-        _showDownloadSuccessDialog(savedPath);
+        // Pass fileName to the success dialog since saved path may not be available.
+        _showDownloadSuccessDialog(fileName);
       }
     } catch (e) {
       if (!mounted) return;
@@ -518,13 +523,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                           color: PdfColors.grey700,
                         ),
                       ),
-                      pw.Text(
-                        'Payment Status: Paid',
-                        style: pw.TextStyle(
-                          fontSize: 11,
-                          color: PdfColors.green700,
-                        ),
-                      ),
+                      
                     ],
                   ),
                   pw.Column(
@@ -1030,7 +1029,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                     ],
                   ),
                 ),
-                // Image area — constrained + zoomable
+                // Image area — constrained + scrollable
                 Flexible(
                   child: ClipRRect(
                     borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
@@ -1107,7 +1106,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
       ),
     );
   }
-
 
   @override
   Widget build(BuildContext context) {

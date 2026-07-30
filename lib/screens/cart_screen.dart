@@ -45,7 +45,9 @@ class _CartScreenState extends State<CartScreen> {
       if (cartStr != null && cartStr.isNotEmpty) {
         final List<dynamic> parsed = json.decode(cartStr);
         setState(() {
-          _cartItems = parsed.map((item) => Map<String, dynamic>.from(item)).toList();
+          _cartItems = List<Map<String, dynamic>>.from(
+            parsed.map((item) => Map<String, dynamic>.from(item))
+          );
         });
       }
 
