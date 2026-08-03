@@ -1,3 +1,5 @@
+import 'package:singlemart/router.dart';
+import 'login_screen.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
@@ -15,11 +17,13 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:open_file/open_file.dart';
 
 class OrderHistoryScreen extends StatefulWidget {
-  final String token;
+  final String? token;
+  final String? orderId;
 
   const OrderHistoryScreen({
     super.key,
-    required this.token,
+    this.token,
+    this.orderId,
   });
 
   @override
@@ -27,6 +31,8 @@ class OrderHistoryScreen extends StatefulWidget {
 }
 
 class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
+  String? _token;
+  String? _selectedOrderId;
   List<dynamic> _orders = [];
   bool _isLoading = true;
   bool _isRefreshing = false;
@@ -59,9 +65,28 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
   @override
   void initState() {
     super.initState();
+    _token = widget.token;
+    _selectedOrderId = widget.orderId;
+    _loadSessionAndData();
+  }
+
+  Future<void> _loadSessionAndData() async {
+    if (_token == null) {
+      final prefs = await SharedPreferences.getInstance();
+      _token = prefs.getString('auth_token');
+    }
+    if (_token == null || _token!.isEmpty) {
+      AppRouter.pendingRoute = _selectedOrderId != null ? '/order/$_selectedOrderId' : '/orders';
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
+        );
+      }
+      return;
+    }
     _loadBaseUrls();
     _loadOrders();
-    
     _refreshTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       _loadOrders(isSilent: true);
     });
@@ -86,6 +111,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
   }
 
   Future<void> _loadOrders({bool isSilent = false}) async {
+    if (_token == null) return;
     if (isSilent && _isRefreshing) return;
     _isRefreshing = true;
 
@@ -98,7 +124,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
 
     try {
       final responses = await Future.wait([
-        ApiService.fetchOrders(widget.token),
+        ApiService.fetchOrders(_token!),
         ApiService.fetchActiveProducts(),
       ]);
 
@@ -188,7 +214,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
       for (var vId in vendorIds) {
         if (!_vendorsData.containsKey(vId)) {
           try {
-            final response = await ApiService.fetchVendor(vId, widget.token);
+            final response = await ApiService.fetchVendor(vId, _token!);
             if (response.statusCode == 200) {
               final resData = json.decode(response.body);
               if (resData['data'] != null) {
@@ -241,6 +267,29 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
   }
 
   List<dynamic> _getFilteredOrders() {
+    if (_selectedOrderId != null) {
+      return _orders.where((o) {
+        final String target = Uri.decodeComponent(_selectedOrderId!)
+            .replaceAll('#', '')
+            .replaceAll(' ', '')
+            .replaceAll('/', '')
+            .replaceAll('-', '')
+            .toLowerCase();
+        final String oId = o['id']?.toString() ?? '';
+        final String oRef = o['order_ref']?.toString() ?? '';
+        
+        final String cleanRef = oRef
+            .replaceAll('#', '')
+            .replaceAll(' ', '')
+            .replaceAll('/', '')
+            .replaceAll('-', '')
+            .toLowerCase();
+            
+        return oId.toLowerCase() == target ||
+               cleanRef == target ||
+               oRef.toLowerCase().contains(target);
+      }).toList();
+    }
     if (_selectedFilter == 'All') {
       return _orders;
     }
@@ -1205,6 +1254,32 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
             height: 1.0,
             color: AppColors.border,
           ),
+          if (_selectedOrderId != null)
+            Container(
+              color: theme.colorScheme.primary.withOpacity(0.08),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Showing details for Order #$_selectedOrderId',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _selectedOrderId = null;
+                      });
+                    },
+                    child: const Text('Show All Orders', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+            ),
           
           Expanded(
             child: _isLoading
@@ -1240,9 +1315,11 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                                 ),
                                 const SizedBox(height: 16),
                                 Text(
-                                  _selectedFilter == 'All' 
-                                      ? 'No orders placed yet' 
-                                      : 'No $_selectedFilter orders found',
+                                  _selectedOrderId != null
+                                      ? 'No order found matching "$_selectedOrderId"'
+                                      : (_selectedFilter == 'All' 
+                                          ? 'No orders placed yet' 
+                                          : 'No $_selectedFilter orders found'),
                                   style: const TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
                                 ),
                               ],
@@ -1436,12 +1513,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                                                           orElse: () => null,
                                                         );
                                                         if (matched != null) {
-                                                          Navigator.push(
-                                                            context,
-                                                            MaterialPageRoute(
-                                                              builder: (context) => ProductDetailScreen(product: matched),
-                                                            ),
-                                                          ).then((_) => _loadOrders());
+                                                          Navigator.pushNamed(context, '/product/${matched['id']}', arguments: matched).then((_) => _loadOrders());
                                                         } else {
                                                           final fallbackProduct = {
                                                             "id": int.tryParse(subProdId) ?? 0,
@@ -1453,12 +1525,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                                                               }
                                                             ] : [],
                                                           };
-                                                          Navigator.push(
-                                                            context,
-                                                            MaterialPageRoute(
-                                                              builder: (context) => ProductDetailScreen(product: fallbackProduct),
-                                                            ),
-                                                          ).then((_) => _loadOrders());
+                                                          Navigator.pushNamed(context, '/product/${fallbackProduct['id']}', arguments: fallbackProduct).then((_) => _loadOrders());
                                                         }
                                                       }
                                                     },

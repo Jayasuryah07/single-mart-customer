@@ -154,8 +154,8 @@ class _SubcategoriesListScreenState extends State<SubcategoriesListScreen> {
       appBar: _buildAppBar(context, isDesktop, theme),
       body: Center(
         child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: isDesktop ? 1200 : double.infinity,
+          constraints: const BoxConstraints(
+            maxWidth: double.infinity,
           ),
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())

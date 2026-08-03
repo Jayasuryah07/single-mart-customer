@@ -1,3 +1,4 @@
+import 'package:singlemart/router.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -313,10 +314,10 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
               _showSnackBar('Login successful. Continuing to checkout...', Colors.green, Icons.check_circle_rounded);
               
               // Push ECommerceHomeScreen as root, then CheckoutScreen on top
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(
-                  builder: (context) => const ECommerceHomeScreen(),
-                ),
+              final target = AppRouter.pendingRoute ?? '/home';
+              AppRouter.pendingRoute = null;
+              Navigator.of(context).pushNamedAndRemoveUntil(
+                target,
                 (route) => false,
               );
               
@@ -480,10 +481,10 @@ class _OTPScreenState extends State<OTPScreen> with SingleTickerProviderStateMix
                   child: ElevatedButton(
                     onPressed: () {
                       Navigator.pop(context); // Close dialog
-                      Navigator.of(context).pushAndRemoveUntil(
-                        MaterialPageRoute(
-                          builder: (context) => const ECommerceHomeScreen(),
-                        ),
+                      final target = AppRouter.pendingRoute ?? '/home';
+                      AppRouter.pendingRoute = null;
+                      Navigator.of(context).pushNamedAndRemoveUntil(
+                        target,
                         (route) => false,
                       );
                     },

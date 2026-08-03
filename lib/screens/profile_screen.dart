@@ -463,14 +463,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       final String? token = prefs.getString('auth_token');
                       if (token != null) {
                         if (context.mounted) {
-                          await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => OrderHistoryScreen(
-                                token: token,
-                              ),
-                            ),
-                          );
+                          await Navigator.pushNamed(context, '/orders', arguments: token);
                         }
                       }
                     },
