@@ -7,6 +7,7 @@ import '../services/api_service.dart';
 import 'ecommerce_home_screen.dart';
 import 'maintenance_screen.dart';
 import 'update_screen.dart';
+import 'package:singlemart/router.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -181,19 +182,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
           await prefs.remove('auth_token');
           await prefs.remove('user_data');
         } else {
-          if (!mounted) return;
-          Navigator.of(context).pushReplacement(
-            PageRouteBuilder(
-              pageBuilder: (context, animation, secondaryAnimation) => const ECommerceHomeScreen(),
-              transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                return FadeTransition(
-                  opacity: animation,
-                  child: child,
-                );
-              },
-              transitionDuration: const Duration(milliseconds: 800),
-            ),
-          );
+          _performRouting();
           return;
         }
       }
@@ -201,20 +190,17 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       debugPrint('Error loading auto-login session: $e');
     }
 
-    // Default to guest e-commerce browsing screen
+    _performRouting();
+  }
+
+  void _performRouting() {
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => const ECommerceHomeScreen(),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(
-            opacity: animation,
-            child: child,
-          );
-        },
-        transitionDuration: const Duration(milliseconds: 800),
-      ),
-    );
+    AppRouter.isInitialized = true;
+    
+    final currentRouteName = ModalRoute.of(context)?.settings.name ?? '/';
+    final String target = currentRouteName == '/' ? '/home' : currentRouteName;
+    
+    Navigator.of(context).pushReplacementNamed(target);
   }
 
   @override

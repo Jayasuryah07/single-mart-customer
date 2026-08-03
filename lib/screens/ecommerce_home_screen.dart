@@ -63,7 +63,7 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> with SingleTi
   static const int _kBannerLoopOffset = 50000;
   final PageController _bannerPageController = PageController();
   late final PageController _desktopBannerController = PageController(
-    viewportFraction: 0.78,
+    viewportFraction: 0.94,
     initialPage: _kBannerLoopOffset,
   );
   Timer? _bannerTimer;
@@ -889,12 +889,7 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> with SingleTi
     return InkWell(
       onTap: () {
         _activeCategoryId.value = null;
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProductDetailScreen(product: prod),
-          ),
-        );
+        Navigator.pushNamed(context, '/product/${prod['id']}', arguments: prod);
       },
       borderRadius: BorderRadius.circular(8),
       child: Column(
@@ -2144,14 +2139,7 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> with SingleTi
                   ],
                 ),
               )
-            : (_currentTabIndex == 0)
-                ? activeBody
-                : Center(
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: isDesktop ? 1200 : double.infinity),
-                      child: activeBody,
-                    ),
-                  ),
+            : activeBody,
         bottomNavigationBar: isDesktop ? null : _buildMobileBottomNav(theme),
       ),
     );
@@ -2470,6 +2458,7 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> with SingleTi
         controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Mega Menu Row
             _buildDesktopCategoryMenuRow(theme),
@@ -2479,7 +2468,7 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> with SingleTi
               clipBehavior: Clip.none,
               children: [
                 Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // Horizontal Category Scroll
                     _buildDesktopCircularCategories(theme),

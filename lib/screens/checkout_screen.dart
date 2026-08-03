@@ -597,7 +597,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 if (isDesktop) {
                   return Center(
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 1200),
+                      constraints: const BoxConstraints(maxWidth: double.infinity),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [

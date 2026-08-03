@@ -10,14 +10,72 @@ import 'cart_screen.dart';
 import 'login_screen.dart';
 
 class ProductDetailScreen extends StatefulWidget {
-  final Map<String, dynamic> product;
-  const ProductDetailScreen({super.key, required this.product});
+  final Map<String, dynamic>? product;
+  final int? productId;
+  const ProductDetailScreen({super.key, this.product, this.productId});
 
   @override
   State<ProductDetailScreen> createState() => _ProductDetailScreenState();
 }
 
 class _ProductDetailScreenState extends State<ProductDetailScreen> {
+  bool _isLoadingProduct = false;
+  Map<String, dynamic>? _loadedProduct;
+
+  Map<String, dynamic> get _product => _loadedProduct ?? _product ?? const {};
+
+  Future<void> _loadProductById() async {
+    setState(() {
+      _isLoadingProduct = true;
+    });
+    try {
+      final response = await ApiService.fetchActiveProducts();
+      if (response.statusCode == 200) {
+        final body = json.decode(response.body);
+        final List<dynamic> data = body['data'] ?? [];
+        final matched = data.firstWhere(
+          (p) => p['id']?.toString() == widget.productId?.toString(),
+          orElse: () => null,
+        );
+        if (matched != null) {
+          setState(() {
+            _loadedProduct = Map<String, dynamic>.from(matched);
+            _isLoadingProduct = false;
+          });
+          _initializeProduct();
+          return;
+        }
+      }
+      setState(() {
+        _isLoadingProduct = false;
+      });
+    } catch (e) {
+      debugPrint("Error loading product detail by ID: $e");
+      setState(() {
+        _isLoadingProduct = false;
+      });
+    }
+  }
+
+  void _initializeProduct() {
+    // Check if a pre-selected variant is specified in the route arguments
+    final preSelectedVarId = _product['selected_variant_id']?.toString();
+    if (preSelectedVarId != null && _hasVariants) {
+      final List variants = _product['variants'] as List;
+      for (int i = 0; i < variants.length; i++) {
+        if (variants[i]['id']?.toString() == preSelectedVarId) {
+          _selectedVariantIndex = i;
+          break;
+        }
+      }
+    }
+
+    _loadCart();
+    _checkLoginStatus();
+    _fetchRelatedProducts();
+    _loadMenuData();
+    _fetchVendorProfile();
+  }
   int _quantity = 1;
   int _selectedImageIndex = 0;
   final PageController _detailPageController = PageController();
@@ -54,14 +112,14 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   bool _hasCheckedPincode = false;
 
   bool get _hasVariants {
-    final variants = widget.product['variants'];
-    final hasVarFlag = widget.product['has_variants'];
+    final variants = _product['variants'];
+    final hasVarFlag = _product['has_variants'];
     return (hasVarFlag == 1 || hasVarFlag == '1') && variants != null && variants is List && variants.isNotEmpty;
   }
 
   Map<String, dynamic>? get _selectedVariant {
     if (!_hasVariants) return null;
-    final variants = widget.product['variants'] as List;
+    final variants = _product['variants'] as List;
     if (_selectedVariantIndex >= variants.length) return Map<String, dynamic>.from(variants[0]);
     return Map<String, dynamic>.from(variants[_selectedVariantIndex]);
   }
@@ -97,24 +155,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   @override
   void initState() {
     super.initState();
-    
-    // Check if a pre-selected variant is specified in the route arguments
-    final preSelectedVarId = widget.product['selected_variant_id']?.toString();
-    if (preSelectedVarId != null && _hasVariants) {
-      final List variants = widget.product['variants'] as List;
-      for (int i = 0; i < variants.length; i++) {
-        if (variants[i]['id']?.toString() == preSelectedVarId) {
-          _selectedVariantIndex = i;
-          break;
-        }
-      }
+    if (widget.product == null && widget.productId != null) {
+      _loadProductById();
+    } else {
+      _initializeProduct();
     }
-
-    _loadCart();
-    _checkLoginStatus();
-    _fetchRelatedProducts();
-    _loadMenuData();
-    _fetchVendorProfile();
   }
 
   @override
@@ -163,7 +208,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           _userData = json.decode(userDataStr);
         }
         
-        final reviews = widget.product['review'] ?? widget.product['reviews'] ?? widget.product['product_reviews'];
+        final reviews = _product['review'] ?? _product['reviews'] ?? _product['product_reviews'];
         if (reviews != null && reviews is List) {
           _localReviews = List<dynamic>.from(reviews);
         } else {
@@ -183,7 +228,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         final resData = json.decode(response.body);
         final List<dynamic> allProductsList = resData['data'] ?? [];
         
-        final dynamic currentSubCategoryId = widget.product['product_sub_category_id'] ?? widget.product['subcategory_id'];
+        final dynamic currentSubCategoryId = _product['product_sub_category_id'] ?? _product['subcategory_id'];
         
         if (currentSubCategoryId != null) {
           final int subId = currentSubCategoryId is int 
@@ -193,7 +238,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           if (subId > 0) {
             setState(() {
               _relatedProducts = allProductsList.where((p) {
-                final bool isNotCurrent = p['id']?.toString() != widget.product['id']?.toString();
+                final bool isNotCurrent = p['id']?.toString() != _product['id']?.toString();
                 final dynamic pSubIdRaw = p['product_sub_category_id'] ?? p['subcategory_id'];
                 final int pSubId = pSubIdRaw is int 
                     ? pSubIdRaw 
@@ -241,8 +286,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       }
 
       // Catalog lookup mapping to resolve missing nested variant details
-      final prodId = widget.product['id'];
-      var targetProduct = widget.product;
+      final prodId = _product['id'];
+      var targetProduct = widget.product ?? <String, dynamic>{};
       final catalogMatch = _allProducts.firstWhere(
         (p) => p['id'] == prodId,
         orElse: () => null,
@@ -250,29 +295,30 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       if (catalogMatch != null) {
         targetProduct = Map<String, dynamic>.from(catalogMatch);
       }
+      final Map<String, dynamic> productDetails = Map<String, dynamic>.from(targetProduct);
 
       final selectedVar = _selectedVariant;
 
       final double discP = selectedVar != null
           ? (double.tryParse(selectedVar['product_discount_price']?.toString() ?? '') ?? 0.0)
-          : (double.tryParse(targetProduct['product_discount_price']?.toString() ?? '') ?? 0.0);
+          : (double.tryParse(productDetails['product_discount_price']?.toString() ?? '') ?? 0.0);
       final double regP = selectedVar != null
           ? (double.tryParse(selectedVar['product_price']?.toString() ?? '') ?? 0.0)
-          : (double.tryParse(targetProduct['product_price']?.toString() ?? '') ?? 0.0);
+          : (double.tryParse(productDetails['product_price']?.toString() ?? '') ?? 0.0);
 
-      final double price = (discP > 0) ? discP : (regP > 0 ? regP : double.tryParse(targetProduct['price']?.toString() ?? '') ?? 0.0);
+      final double price = (discP > 0) ? discP : (regP > 0 ? regP : double.tryParse(productDetails['price']?.toString() ?? '') ?? 0.0);
       final double originalPrice = (discP > 0 && regP > discP) ? regP : (regP > price ? regP : 0.0);
 
       String? productImg;
       if (selectedVar != null && selectedVar['images'] != null && selectedVar['images'] is List && (selectedVar['images'] as List).isNotEmpty) {
         productImg = selectedVar['images'][0]['product_variant_images']?.toString();
-      } else if (targetProduct['images'] != null && targetProduct['images'] is List && (targetProduct['images'] as List).isNotEmpty) {
-        productImg = targetProduct['images'][0]['product_images']?.toString();
+      } else if (productDetails['images'] != null && productDetails['images'] is List && (productDetails['images'] as List).isNotEmpty) {
+        productImg = productDetails['images'][0]['product_images']?.toString();
       }
 
       final String variantAttrStr = selectedVar != null ? _formatVariantAttributes(selectedVar) : '';
       final int? varId = selectedVar != null ? int.tryParse(selectedVar['id']?.toString() ?? '') : null;
-      final String cartMatchId = varId != null ? "${targetProduct['id']}_v$varId" : "${targetProduct['id']}";
+      final String cartMatchId = varId != null ? "${productDetails['id']}_v$varId" : "${productDetails['id']}";
 
       setState(() {
         final existingIndex = currentCart.indexWhere((item) {
@@ -342,7 +388,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     }
 
     if (urls.isEmpty) {
-      final images = widget.product['images'];
+      final images = _product['images'];
       if (images != null && images is List && images.isNotEmpty) {
         for (var img in images) {
           final String? filename = img['product_images'];
@@ -368,17 +414,17 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     }
 
     final selectedVar = _selectedVariant;
-    final String name = widget.product['product_name'] ?? widget.product['name'] ?? 'Product Detail';
-    final String vendor = widget.product['vendor_name'] ?? 'SingleMart Merchant';
-    final String category = widget.product['categories_name'] ?? widget.product['image'] ?? 'General';
-    final String subcategory = widget.product['categories_subs_name'] ?? 'General Sub';
-    final String brand = widget.product['brands_name'] ?? 'Generic';
-    final String shortDesc = widget.product['product_short_description'] ?? widget.product['desc'] ?? '';
-    final String longDesc = widget.product['product_long_description'] ?? '';
+    final String name = _product['product_name'] ?? _product['name'] ?? 'Product Detail';
+    final String vendor = _product['vendor_name'] ?? 'SingleMart Merchant';
+    final String category = _product['categories_name'] ?? _product['image'] ?? 'General';
+    final String subcategory = _product['categories_subs_name'] ?? 'General Sub';
+    final String brand = _product['brands_name'] ?? 'Generic';
+    final String shortDesc = _product['product_short_description'] ?? _product['desc'] ?? '';
+    final String longDesc = _product['product_long_description'] ?? '';
 
     double price = 0.0;
     double? discountPrice;
-    String stockStatus = widget.product['product_status'] ?? 'In Stock';
+    String stockStatus = _product['product_status'] ?? 'In Stock';
 
     if (selectedVar != null) {
       final double? discP = double.tryParse(selectedVar['product_discount_price']?.toString() ?? '');
@@ -393,10 +439,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       final int qty = int.tryParse(selectedVar['product_quantity']?.toString() ?? '0') ?? 0;
       if (qty <= 0) stockStatus = 'Out of Stock';
     } else {
-      price = double.tryParse(widget.product['product_price']?.toString() ?? '') ??
-          double.tryParse(widget.product['price']?.toString() ?? '') ??
+      price = double.tryParse(_product['product_price']?.toString() ?? '') ??
+          double.tryParse(_product['price']?.toString() ?? '') ??
           0.0;
-      discountPrice = double.tryParse(widget.product['product_discount_price']?.toString() ?? '');
+      discountPrice = double.tryParse(_product['product_discount_price']?.toString() ?? '');
     }
 
     final bool isDesktop = MediaQuery.of(context).size.width > 850;
@@ -415,7 +461,16 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 SizedBox(width: 12),
               ],
             ),
-      body: Stack(
+      body: _isLoadingProduct
+          ? const Center(child: CircularProgressIndicator())
+          : _product.isEmpty
+              ? const Center(
+                  child: Text(
+                    'Product not found or has been removed.',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                )
+              : Stack(
         children: [
           Column(
             children: [
@@ -793,24 +848,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 ),
                 const SizedBox(height: 12),
                 // Social Proof tag
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFF7ED),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: const Color(0xFFFFEDD5), width: 1),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.local_fire_department_rounded, size: 15, color: Colors.orange),
-                      SizedBox(width: 6),
-                      Text('Ordered 180+ times in Past Month', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.orange)),
-                    ],
-                  ),
-                ),
-                _buildDeliveryCheckBlock(),
-                _buildOffersScroller(),
+                
+           
+            
                 _buildVariantSelector(theme),
                 _buildAccordionBlock(shortDesc, longDesc),
                 const SizedBox(height: 28),
@@ -1004,24 +1044,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         ),
         const SizedBox(height: 12),
         // Social proof banner
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFFF7ED),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: const Color(0xFFFFEDD5), width: 1),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.local_fire_department_rounded, size: 14, color: Colors.orange),
-              SizedBox(width: 6),
-              Text('Ordered 180+ times in Past Month', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Colors.orange)),
-            ],
-          ),
-        ),
-        _buildDeliveryCheckBlock(),
-        _buildOffersScroller(),
+        
+
         _buildVariantSelector(theme),
         _buildAccordionBlock(shortDesc, longDesc),
       ],
@@ -1030,7 +1054,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
   Widget _buildVariantSelector(ThemeData theme) {
     if (!_hasVariants) return const SizedBox.shrink();
-    final List variants = widget.product['variants'] as List;
+    final List variants = _product['variants'] as List;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1258,17 +1282,55 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             itemBuilder: (context, index) {
               final prod = _relatedProducts[index];
               final String pName = prod['product_name'] ?? prod['name'] ?? 'Product';
-              final double regP = double.tryParse(prod['product_price']?.toString() ?? '') ?? 0.0;
-              final double discP = double.tryParse(prod['product_discount_price']?.toString() ?? '') ?? 0.0;
+
+              final bool hasVariants = (prod['has_variants'] == 1 || prod['has_variants'] == '1') &&
+                  prod['variants'] != null &&
+                  (prod['variants'] as List).isNotEmpty;
+
+              double regP = 0.0;
+              double discP = 0.0;
+
+              if (hasVariants) {
+                final firstVar = (prod['variants'] as List).first;
+                discP = double.tryParse(firstVar['product_discount_price']?.toString() ?? '') ?? 0.0;
+                regP = double.tryParse(firstVar['product_price']?.toString() ?? '') ?? 0.0;
+              } else {
+                discP = double.tryParse(prod['product_discount_price']?.toString() ?? '') ?? 0.0;
+                regP = double.tryParse(prod['product_price']?.toString() ?? '') ??
+                       double.tryParse(prod['price']?.toString() ?? '') ?? 0.0;
+              }
+
               final double displayPrice = discP > 0 ? discP : regP;
               final bool hasDiscount = discP > 0 && regP > discP;
               final int pct = hasDiscount ? (((regP - discP) / regP) * 100).round() : 0;
 
-              String? pImg;
-              if (prod['images'] != null && prod['images'] is List && (prod['images'] as List).isNotEmpty) {
-                pImg = prod['images'][0]['product_images']?.toString();
+              String finalImgUrl = _baseNoImageUrl;
+              if (hasVariants) {
+                final firstVar = (prod['variants'] as List).first;
+                final varImages = firstVar['images'];
+                if (varImages != null && varImages is List && varImages.isNotEmpty) {
+                  final String? filename = varImages[0]['product_variant_images'];
+                  if (filename != null && filename.isNotEmpty) {
+                    finalImgUrl = '$_baseProductVariantImageUrl$filename';
+                  }
+                } else {
+                  final prodImages = prod['images'];
+                  if (prodImages != null && prodImages is List && prodImages.isNotEmpty) {
+                    final String? filename = prodImages[0]['product_images'];
+                    if (filename != null && filename.isNotEmpty) {
+                      finalImgUrl = '$_baseProductImageUrl$filename';
+                    }
+                  }
+                }
+              } else {
+                final images = prod['images'];
+                if (images != null && images is List && images.isNotEmpty) {
+                  final String? filename = images[0]['product_images'];
+                  if (filename != null && filename.isNotEmpty) {
+                    finalImgUrl = '$_baseProductImageUrl$filename';
+                  }
+                }
               }
-              final String finalImgUrl = (pImg != null && pImg.isNotEmpty) ? '$_baseProductImageUrl$pImg' : _baseNoImageUrl;
 
               return GestureDetector(
                 onTap: () {
@@ -1483,10 +1545,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   }
 
   Future<void> _submitReview(String rating, String reviewText) async {
-    if (_token == null || widget.product['id'] == null) return;
+    if (_token == null || _product['id'] == null) return;
     try {
       final response = await ApiService.postProductReview(
-        productId: widget.product['id'].toString(),
+        productId: _product['id'].toString(),
         productRating: rating,
         productReview: reviewText,
         token: _token!,
@@ -1607,14 +1669,52 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
   Widget _buildMegaMenuItem(dynamic prod, ThemeData theme) {
     final name = prod['product_name'] ?? prod['name'] ?? 'Product';
-    final regP = double.tryParse(prod['product_price']?.toString() ?? '') ?? 0.0;
-    final discP = double.tryParse(prod['product_discount_price']?.toString() ?? '') ?? 0.0;
-    final price = discP > 0 ? discP : regP;
-    String? pImg;
-    if (prod['images'] != null && prod['images'] is List && (prod['images'] as List).isNotEmpty) {
-      pImg = prod['images'][0]['product_images']?.toString();
+    final bool hasVariants = (prod['has_variants'] == 1 || prod['has_variants'] == '1') &&
+        prod['variants'] != null &&
+        (prod['variants'] as List).isNotEmpty;
+
+    double regP = 0.0;
+    double discP = 0.0;
+
+    if (hasVariants) {
+      final firstVar = (prod['variants'] as List).first;
+      discP = double.tryParse(firstVar['product_discount_price']?.toString() ?? '') ?? 0.0;
+      regP = double.tryParse(firstVar['product_price']?.toString() ?? '') ?? 0.0;
+    } else {
+      discP = double.tryParse(prod['product_discount_price']?.toString() ?? '') ?? 0.0;
+      regP = double.tryParse(prod['product_price']?.toString() ?? '') ??
+             double.tryParse(prod['price']?.toString() ?? '') ?? 0.0;
     }
-    final finalImgUrl = (pImg != null && pImg.isNotEmpty) ? '$_baseProductImageUrl$pImg' : _baseNoImageUrl;
+
+    final price = discP > 0 ? discP : regP;
+
+    String finalImgUrl = _baseNoImageUrl;
+    if (hasVariants) {
+      final firstVar = (prod['variants'] as List).first;
+      final varImages = firstVar['images'];
+      if (varImages != null && varImages is List && varImages.isNotEmpty) {
+        final String? filename = varImages[0]['product_variant_images'];
+        if (filename != null && filename.isNotEmpty) {
+          finalImgUrl = '$_baseProductVariantImageUrl$filename';
+        }
+      } else {
+        final prodImages = prod['images'];
+        if (prodImages != null && prodImages is List && prodImages.isNotEmpty) {
+          final String? filename = prodImages[0]['product_images'];
+          if (filename != null && filename.isNotEmpty) {
+            finalImgUrl = '$_baseProductImageUrl$filename';
+          }
+        }
+      }
+    } else {
+      final images = prod['images'];
+      if (images != null && images is List && images.isNotEmpty) {
+        final String? filename = images[0]['product_images'];
+        if (filename != null && filename.isNotEmpty) {
+          finalImgUrl = '$_baseProductImageUrl$filename';
+        }
+      }
+    }
 
     return GestureDetector(
       onTap: () {
@@ -1902,180 +2002,24 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     );
   }
 
-  Widget _buildOffersScroller() {
-    final offers = [
-      {
-        "title": "Paytm Cashback",
-        "desc": "Get Cashback up to Rs.300 on a minimum transaction of Rs.749",
-        "icon": Icons.payment_rounded,
-      },
-      {
-        "title": "Airtel Payments Bank",
-        "desc": "Flat 10% off up to Rs.200 on a minimum transaction of Rs.889",
-        "icon": Icons.account_balance_wallet_rounded,
-      },
-      {
-        "title": "MobiKwik Cashback",
-        "desc": "Flat Rs.75 Cashback on a minimum transaction of Rs.1499",
-        "icon": Icons.wallet_rounded,
-      }
-    ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 20),
-        const Text(
-          'Offers Available',
-          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-        ),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 80,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            itemCount: offers.length,
-            itemBuilder: (context, index) {
-              final offer = offers[index];
-              return Container(
-                width: 260,
-                margin: const EdgeInsets.only(right: 12, bottom: 4),
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFF1F5F9), width: 1.5),
-                  boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.01), blurRadius: 4, offset: const Offset(0, 1))
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(offer['icon'] as IconData, size: 16, color: AppColors.primary),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(offer['title'] as String, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-                          const SizedBox(height: 2),
-                          Text(offer['desc'] as String, style: const TextStyle(fontSize: 9.5, color: AppColors.textLight, height: 1.3), maxLines: 2, overflow: TextOverflow.ellipsis),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
+  
 
-  Widget _buildDeliveryCheckBlock() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 20),
-        const Text(
-          'Choose Delivery Preference',
-          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: Container(
-                height: 44,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  children: [
-                    const Icon(Icons.location_on_outlined, size: 16, color: AppColors.textLight),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: _pincodeController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          hintText: 'Enter pincode, locality, etc.',
-                          hintStyle: TextStyle(fontSize: 12.5, color: AppColors.textLight),
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          contentPadding: EdgeInsets.only(bottom: 12),
-                          fillColor: Colors.transparent,
-                          filled: false,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            SizedBox(
-              height: 44,
-              child: ElevatedButton(
-                onPressed: () {
-                  if (_pincodeController.text.trim().isNotEmpty) {
-                    setState(() {
-                      _hasCheckedPincode = true;
-                      _deliveryEstimate = "Standard Delivery: Get it by Tomorrow!";
-                    });
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                child: const Text('Check', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              ),
-            ),
-          ],
-        ),
-        if (_hasCheckedPincode) ...[
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              const Icon(Icons.local_shipping_outlined, size: 14, color: Colors.green),
-              const SizedBox(width: 6),
-              Text(_deliveryEstimate, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green)),
-            ],
-          ),
-        ],
-      ],
-    );
-  }
+  
 
   Widget _buildAccordionBlock(String shortDesc, String longDesc) {
     final selectedVar = _selectedVariant;
     final List<Widget> specRows = [];
 
     final String vendorName = _vendorProfileData?['name']?.toString() ?? 
-                              widget.product['vendor']?['name']?.toString() ?? 
-                              widget.product['vendor_name']?.toString() ?? 
+                              _product['vendor']?['name']?.toString() ?? 
+                              _product['vendor_name']?.toString() ?? 
                               'SingleMart Merchant';
     final String vendorMobile = _vendorProfileData?['mobile']?.toString() ?? 
-                                widget.product['vendor']?['mobile']?.toString() ?? 
-                                widget.product['vendor']?['phone']?.toString() ?? 
+                                _product['vendor']?['mobile']?.toString() ?? 
+                                _product['vendor']?['phone']?.toString() ?? 
                                 'Not Available';
     final String vendorEmail = _vendorProfileData?['email']?.toString() ?? 
-                               widget.product['vendor']?['email']?.toString() ?? 
+                               _product['vendor']?['email']?.toString() ?? 
                                'Not Available';
 
     if (selectedVar != null) {
@@ -2224,7 +2168,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
   Future<void> _fetchVendorProfile() async {
     try {
-      final vendorIdRaw = widget.product['product_vendor_id'] ?? widget.product['vendor_id'] ?? widget.product['vendor']?['id'];
+      final vendorIdRaw = _product['product_vendor_id'] ?? _product['vendor_id'] ?? _product['vendor']?['id'];
       if (vendorIdRaw != null) {
         final int vId = vendorIdRaw is int ? vendorIdRaw : int.tryParse(vendorIdRaw.toString()) ?? 0;
         if (vId > 0) {

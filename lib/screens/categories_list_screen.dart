@@ -359,8 +359,8 @@ class _CategoriesListScreenState extends State<CategoriesListScreen> {
                 children: [
                   Center(
                     child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth: isDesktop ? 1200 : double.infinity,
+                      constraints: const BoxConstraints(
+                        maxWidth: double.infinity,
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
