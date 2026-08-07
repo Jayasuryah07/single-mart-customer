@@ -381,4 +381,18 @@ class ApiService {
       }),
     ).timeout(const Duration(seconds: 10));
   }
+
+  /// 22. Subscribe to Newsletter
+  static Future<http.Response> createNewsletter(String email) async {
+    final uri = Uri.parse('$baseUrl/createnewsletter');
+    return await http.post(
+      uri,
+      headers: {
+        'Accept': 'application/json',
+      },
+      body: {
+        'newsletter_email': email,
+      },
+    ).timeout(const Duration(seconds: 10));
+  }
 }
