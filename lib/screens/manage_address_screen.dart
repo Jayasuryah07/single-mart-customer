@@ -553,20 +553,39 @@ class _ManageAddressScreenState extends State<ManageAddressScreen> {
   }
 
   void _showSnackBar(String message, Color color, IconData icon) {
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isDesktop = screenWidth > 850;
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
           children: [
-            Icon(icon, color: Colors.white, size: 24),
-            const SizedBox(width: 12),
-            Expanded(child: Text(message, style: const TextStyle(fontSize: 14))),
+            Icon(icon, color: Colors.white, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ),
           ],
         ),
         backgroundColor: color,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        margin: const EdgeInsets.all(16),
-        duration: const Duration(seconds: 2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 3),
+        margin: isDesktop
+            ? EdgeInsets.only(
+                bottom: 24,
+                right: 24,
+                left: screenWidth - 360,
+              )
+            : const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       ),
     );
   }
