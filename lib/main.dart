@@ -8,11 +8,14 @@ import 'package:singlemart/router.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
+
+late final Future<FirebaseApp> firebaseInitialization;
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Initialize Firebase
-  await Firebase.initializeApp(
+  firebaseInitialization = Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
 

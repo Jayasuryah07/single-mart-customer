@@ -8,6 +8,8 @@ import 'ecommerce_home_screen.dart';
 import 'maintenance_screen.dart';
 import 'update_screen.dart';
 import 'package:singlemart/router.dart';
+import 'package:firebase_core/firebase_core.dart';
+import '../main.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -89,6 +91,9 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
       // 2. Fetch app status from API
       final response = await ApiService.checkStatus();
+
+      // 3. Await background Firebase initialization
+      await firebaseInitialization;
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = json.decode(response.body);

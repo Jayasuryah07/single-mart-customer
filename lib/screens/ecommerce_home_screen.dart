@@ -74,6 +74,10 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> with SingleTi
   final FocusNode _searchFocusNode = FocusNode();
   bool _isSearchFocused = false;
   String _searchQuery = '';
+
+  // Newsletter
+  final TextEditingController _newsletterEmailController = TextEditingController();
+  bool _isSubscribing = false;
   OverlayEntry? _searchOverlayEntry;
   final LayerLink _searchLayerLink = LayerLink();
   final GlobalKey _searchKey = GlobalKey();
@@ -142,6 +146,7 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> with SingleTi
     _searchOverlayEntry?.remove();
     _searchController.dispose();
     _searchFocusNode.dispose();
+    _newsletterEmailController.dispose();
     _bannerPageController.dispose();
     _desktopBannerController.dispose();
     _scrollController.dispose();
@@ -3230,6 +3235,49 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> with SingleTi
     );
   }
 
+  void _subscribeNewsletter() async {
+    final email = _newsletterEmailController.text.trim();
+    if (email.isEmpty) {
+      ShowSnackBar.show(context, 'Please enter an email address', isError: true);
+      return;
+    }
+
+    final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+    if (!emailRegex.hasMatch(email)) {
+      ShowSnackBar.show(context, 'Please enter a valid email address', isError: true);
+      return;
+    }
+
+    setState(() {
+      _isSubscribing = true;
+    });
+
+    try {
+      final response = await ApiService.createNewsletter(email);
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        ShowSnackBar.show(context, 'Subscribed successfully to newsletter!', isError: false);
+        _newsletterEmailController.clear();
+      } else {
+        String errorMsg = 'Subscription failed. Please try again.';
+        try {
+          final data = json.decode(response.body);
+          if (data is Map && data.containsKey('message')) {
+            errorMsg = data['message'].toString();
+          }
+        } catch (_) {}
+        ShowSnackBar.show(context, errorMsg, isError: true);
+      }
+    } catch (e) {
+      ShowSnackBar.show(context, 'An error occurred. Please check your connection.', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubscribing = false;
+        });
+      }
+    }
+  }
+
   // ==================== FOOTER ====================
 
   Widget _buildDesktopFooter(ThemeData theme) {
@@ -3270,21 +3318,39 @@ class _ECommerceHomeScreenState extends State<ECommerceHomeScreen> with SingleTi
                   decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(30)),
                   child: Row(
                     children: [
-                      const Expanded(
+                      Expanded(
                         child: Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 18),
+                          padding: const EdgeInsets.symmetric(horizontal: 18),
                           child: TextField(
-                            decoration: InputDecoration(hintText: 'Enter your email address', hintStyle: TextStyle(fontSize: 13, color: Colors.grey)),
-                            style: TextStyle(fontSize: 14),
+                            controller: _newsletterEmailController,
+                            keyboardType: TextInputType.emailAddress,
+                            decoration: const InputDecoration(
+                              hintText: 'Enter your email address',
+                              hintStyle: TextStyle(fontSize: 13, color: Colors.grey),
+                              border: InputBorder.none,
+                            ),
+                            style: const TextStyle(fontSize: 14),
                           ),
                         ),
                       ),
-                      Container(
-                        height: 46,
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        decoration: BoxDecoration(color: AppColors.textPrimary, borderRadius: BorderRadius.circular(30)),
-                        alignment: Alignment.center,
-                        child: const Text('Subscribe', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                      GestureDetector(
+                        onTap: _isSubscribing ? null : _subscribeNewsletter,
+                        child: Container(
+                          height: 46,
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          decoration: BoxDecoration(color: AppColors.textPrimary, borderRadius: BorderRadius.circular(30)),
+                          alignment: Alignment.center,
+                          child: _isSubscribing
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                  ),
+                                )
+                              : const Text('Subscribe', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                        ),
                       ),
                     ],
                   ),
