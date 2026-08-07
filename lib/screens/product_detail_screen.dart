@@ -22,7 +22,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   bool _isLoadingProduct = false;
   Map<String, dynamic>? _loadedProduct;
 
-  Map<String, dynamic> get _product => _loadedProduct ?? _product ?? const {};
+  Map<String, dynamic> get _product => _loadedProduct ?? widget.product ?? const {};
 
   Future<void> _loadProductById() async {
     setState(() {
